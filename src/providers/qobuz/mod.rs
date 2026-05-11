@@ -54,12 +54,16 @@ impl QobuzClient {
             .map_err(|e| AppError::Qobuz(e.to_string()))?;
 
         if !status.is_success() {
-            return Err(AppError::Qobuz(
-                body.get("message")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("login failed")
-                    .to_string(),
-            ));
+            let msg = body
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("login failed");
+            tracing::error!(
+                "Qobuz login failed: status={}, body={}",
+                status,
+                serde_json::to_string(&body).unwrap_or_default()
+            );
+            return Err(AppError::Qobuz(msg.to_string()));
         }
 
         let token = body
