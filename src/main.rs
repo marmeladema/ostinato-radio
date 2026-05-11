@@ -62,11 +62,7 @@ async fn main() -> anyhow::Result<()> {
 
     let qobuz = QobuzClient::new();
 
-    let lastfm_api_key = if config.lastfm.api_key.is_empty() {
-        std::env::var("LASTFM_API_KEY").unwrap_or_default()
-    } else {
-        config.lastfm.api_key.clone()
-    };
+    let lastfm_api_key = std::env::var("LASTFM_API_KEY").unwrap_or_default();
     let lastfm = LastfmClient::new(lastfm_api_key);
 
     let linkplay = LinkplayClient::new(config.wiim.ip.clone(), config.wiim.poll_interval_seconds);

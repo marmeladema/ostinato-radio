@@ -6,7 +6,6 @@ use std::net::SocketAddr;
 pub struct Config {
     pub server: ServerConfig,
     pub qobuz: QobuzConfig,
-    pub lastfm: LastfmConfig,
     pub ai: AiConfig,
     pub radio: RadioConfig,
     pub wiim: WiimConfig,
@@ -24,12 +23,6 @@ pub struct ServerConfig {
 #[serde(default)]
 pub struct QobuzConfig {
     pub preferred_format_id: u32,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-pub struct LastfmConfig {
-    pub api_key: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -77,14 +70,6 @@ impl Default for QobuzConfig {
     fn default() -> Self {
         Self {
             preferred_format_id: 27,
-        }
-    }
-}
-
-impl Default for LastfmConfig {
-    fn default() -> Self {
-        Self {
-            api_key: "".to_string(),
         }
     }
 }

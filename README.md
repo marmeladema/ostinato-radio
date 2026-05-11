@@ -163,7 +163,9 @@ The backend serves the built frontend statically from `/`.
 
 ## Configuration
 
-`config.toml` (or via env vars with prefix `OSTINATO__`):
+All secrets and credentials live in **`.env`** — `config.toml` is purely optional and only needed if you want to override structural defaults (port, pool ratios, etc.).
+
+### `config.toml` (optional)
 
 ```toml
 [server]
@@ -173,9 +175,6 @@ public_base_url = "http://192.168.1.10:8080"  # must be reachable from WiiM
 
 [qobuz]
 preferred_format_id = 27  # Hi-Res 24-bit
-
-[lastfm]
-api_key = "your_lastfm_api_key"
 
 [ai]
 provider = "workers_ai"  # or "anthropic" | "openai_compat"
