@@ -66,15 +66,13 @@ Qobuz has excellent audio quality but its editorial playlists are static and imp
 
 ---
 
-## Quick Start
+## Quick Start (Docker Compose — Easiest)
 
 ### Prerequisites
 
-- [Rust](https://rustup.rs/) (latest stable)
-- [Node.js](https://nodejs.org/) 20+ (for frontend dev only)
+- [Docker](https://docs.docker.com/get-docker/) + Docker Compose
 - A **Qobuz** account
 - A **Last.fm API key** ([get one here](https://www.last.fm/api/account/create))
-- (Optional) **Cloudflare Workers AI** credentials for AI ranking
 
 ### 1. Clone & configure
 
@@ -82,36 +80,54 @@ Qobuz has excellent audio quality but its editorial playlists are static and imp
 git clone https://github.com/yourusername/ostinato-radio.git
 cd ostinato-radio
 
-# Copy the example config
-cp config.toml.example config.toml
-# Edit config.toml to match your network (especially public_base_url and wiim ip)
+# Copy and fill in your credentials
+cp .env.example .env
+# Edit .env with your Qobuz email, password, and Last.fm API key
 ```
 
-### 2. Set environment variables
+### 2. Start
 
 ```bash
+docker compose up --build
+```
+
+That's it. The server will:
+1. Build the Rust backend + React frontend in one image
+2. Scrape Qobuz's `bundle.js` for app credentials
+3. Log in with your email/password
+4. Fetch your favorites and build the taste profile
+5. Start serving on `http://localhost:8080`
+
+Open `http://localhost:8080` in your browser (or `http://<your-lan-ip>:8080` from your phone for PWA install).
+
+### 3. Install as PWA (phone)
+
+Open the URL in Chrome on Android → Menu → "Add to Home screen". The app works as a fullscreen PWA.
+
+---
+
+## Development (without Docker)
+
+If you want to work on the code:
+
+### Prerequisites
+
+- [Rust](https://rustup.rs/) (latest stable)
+- [Node.js](https://nodejs.org/) 20+
+
+### Backend
+
+```bash
+# Set env vars
 export QOBUZ_EMAIL="your@email.com"
 export QOBUZ_PASSWORD="your_qobuz_password"
 export LASTFM_API_KEY="your_lastfm_api_key"
 
-# Optional: for AI ranking instead of deterministic fallback
-export CLOUDFLARE_ACCOUNT_ID="..."
-export CLOUDFLARE_API_TOKEN="..."
-```
-
-### 3. Run the backend
-
-```bash
+# Run
 cargo run
 ```
 
-The server will:
-1. Scrape Qobuz's `bundle.js` for app credentials
-2. Log in with your email/password
-3. Fetch your favorites and build the taste profile
-4. Start serving on `0.0.0.0:8080`
-
-### 4. Run the frontend (dev)
+### Frontend
 
 ```bash
 cd frontend
@@ -119,17 +135,13 @@ npm install
 npm run dev
 ```
 
-Vite dev server proxies API requests to `localhost:8080`. Open the local URL it prints (usually `http://localhost:5173`).
-
-### 5. Install as PWA (phone)
-
-Open the frontend in Chrome on Android → Menu → "Add to Home screen". The app will work as a fullscreen PWA.
+Vite proxies API requests to `localhost:8080`. Open the local URL it prints (usually `http://localhost:5173`).
 
 ---
 
-## Docker (Production)
+## Docker (manual)
 
-Build and run everything in a single container:
+If you prefer plain Docker over Compose:
 
 ```bash
 docker build -t ostinato-radio .
@@ -138,8 +150,6 @@ docker run -p 8080:8080 \
   -e QOBUZ_EMAIL=your@email.com \
   -e QOBUZ_PASSWORD=yourpass \
   -e LASTFM_API_KEY=yourkey \
-  -e CLOUDFLARE_ACCOUNT_ID=... \
-  -e CLOUDFLARE_API_TOKEN=... \
   ostinato-radio
 ```
 
