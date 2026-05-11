@@ -1,7 +1,8 @@
 use serde::Deserialize;
 use std::net::SocketAddr;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
 pub struct Config {
     pub server: ServerConfig,
     pub qobuz: QobuzConfig,
@@ -12,6 +13,7 @@ pub struct Config {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
@@ -19,16 +21,19 @@ pub struct ServerConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
 pub struct QobuzConfig {
     pub preferred_format_id: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
 pub struct LastfmConfig {
     pub api_key: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
 pub struct AiConfig {
     pub provider: String,
     pub model: String,
@@ -36,6 +41,7 @@ pub struct AiConfig {
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
 pub struct RadioConfig {
     pub default_pool_ratios: PoolRatios,
     pub window_size: usize,
@@ -51,9 +57,69 @@ pub struct PoolRatios {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
 pub struct WiimConfig {
     pub ip: Option<String>,
     pub poll_interval_seconds: u64,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            host: "0.0.0.0".to_string(),
+            port: 8080,
+            public_base_url: "http://localhost:8080".to_string(),
+        }
+    }
+}
+
+impl Default for QobuzConfig {
+    fn default() -> Self {
+        Self {
+            preferred_format_id: 27,
+        }
+    }
+}
+
+impl Default for LastfmConfig {
+    fn default() -> Self {
+        Self {
+            api_key: "".to_string(),
+        }
+    }
+}
+
+impl Default for AiConfig {
+    fn default() -> Self {
+        Self {
+            provider: "workers_ai".to_string(),
+            model: "@cf/google/gemma-4-26b-a4b-it".to_string(),
+        }
+    }
+}
+
+impl Default for RadioConfig {
+    fn default() -> Self {
+        Self {
+            default_pool_ratios: PoolRatios {
+                familiar: 0.60,
+                new_release: 0.25,
+                discovery: 0.15,
+            },
+            window_size: 20,
+            window_refresh_threshold: 5,
+            new_release_max_age_days: 180,
+        }
+    }
+}
+
+impl Default for WiimConfig {
+    fn default() -> Self {
+        Self {
+            ip: None,
+            poll_interval_seconds: 5,
+        }
+    }
 }
 
 impl Config {
@@ -79,10 +145,3 @@ impl Config {
             .expect("Invalid socket address")
     }
 }
-
-// Manual implementation to read env vars with specific names for secrets
-// QOBUZ_EMAIL, QOBUZ_PASSWORD handled in qobuz auth
-// LASTFM_API_KEY
-// CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN
-// ANTHROPIC_API_KEY
-// OPENAI_API_KEY, OPENAI_BASE_URL
