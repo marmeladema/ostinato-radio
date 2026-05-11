@@ -2,9 +2,10 @@ import React, { useState } from 'react'
 
 interface Props {
   onError: (msg: string) => void
+  onLogout: () => void
 }
 
-export default function Settings({ onError }: Props) {
+export default function Settings({ onError, onLogout }: Props) {
   const [wiimIp, setWiimIp] = useState(localStorage.getItem('wiimIp') || '')
   const [saved, setSaved] = useState(false)
 
@@ -49,6 +50,14 @@ export default function Settings({ onError }: Props) {
 
       <button className="primary-btn" onClick={handleSave}>
         {saved ? 'Saved!' : 'Save'}
+      </button>
+
+      <button
+        className="primary-btn"
+        style={{ background: 'var(--surface-2)', marginTop: 12 }}
+        onClick={onLogout}
+      >
+        Log out
       </button>
     </div>
   )

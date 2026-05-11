@@ -1,15 +1,18 @@
 mod config;
 mod engine;
 mod errors;
+mod middleware;
 mod providers;
 mod routes;
 mod state;
 
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tracing::info;
 
 use axum::{
     Router,
+    middleware::from_fn_with_state,
     routing::{get, post},
 };
 use tower_http::cors::CorsLayer;
@@ -37,6 +40,25 @@ async fn main() -> anyhow::Result<()> {
 
     let config = Config::load()?;
     info!("Configuration loaded");
+
+    // Read optional password hash for remote access protection
+    let password_hash = std::env::var("APP_PASSWORD_HASH").ok();
+    let password_hash = password_hash.filter(|h| !h.is_empty());
+
+    let jwt_secret = if let Some(ref hash) = password_hash {
+        let mut hasher = Sha256::new();
+        hasher.update(b"ostinato-jwt:");
+        hasher.update(hash.as_bytes());
+        format!("{:x}", hasher.finalize())
+    } else {
+        "ostinato-radio-default-unused".to_string()
+    };
+
+    if password_hash.is_some() {
+        info!("Password protection enabled (APP_PASSWORD_HASH is set)");
+    } else {
+        info!("Password protection disabled — set APP_PASSWORD_HASH to enable auth");
+    }
 
     let qobuz = QobuzClient::new();
     let lastfm = LastfmClient::new(config.lastfm.api_key.clone());
@@ -97,7 +119,15 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    let state = AppState::new(config.clone(), qobuz.clone(), lastfm, ai, linkplay);
+    let state = AppState::new(
+        config.clone(),
+        qobuz.clone(),
+        lastfm,
+        ai,
+        linkplay,
+        password_hash,
+        jwt_secret,
+    );
 
     // Qobuz authentication at boot
     info!("Authenticating with Qobuz...");
@@ -168,9 +198,16 @@ async fn main() -> anyhow::Result<()> {
 }
 
 fn build_router(state: Arc<AppState>, _config: &Config) -> Router {
-    let api = Router::new()
+    // Public routes: no auth required
+    let public = Router::new()
         .route("/health", get(|| async { "ok" }))
         .route("/auth/status", get(routes::auth::status))
+        .route("/auth/login", post(routes::auth::login))
+        .route("/auth/logout", post(routes::auth::logout))
+        .with_state(state.clone());
+
+    // Protected routes: auth required when password hash is set
+    let protected = Router::new()
         .route("/radio/start", post(routes::radio::start_radio))
         .route("/radio/{session_id}", get(routes::radio::session_status))
         .route("/radio/{session_id}/next", post(routes::radio::next_track))
@@ -184,9 +221,16 @@ fn build_router(state: Arc<AppState>, _config: &Config) -> Router {
             "/feedback/{session_id}",
             post(routes::feedback::submit_feedback),
         )
-        .layer(CorsLayer::permissive())
-        .layer(TraceLayer::new_for_http())
+        .layer(from_fn_with_state(
+            state.clone(),
+            middleware::auth::auth_layer,
+        ))
         .with_state(state);
+
+    let api = public
+        .merge(protected)
+        .layer(CorsLayer::permissive())
+        .layer(TraceLayer::new_for_http());
 
     // Serve frontend static files if they exist
     let static_files = ServeDir::new("frontend/dist").precompressed_gzip();

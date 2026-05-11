@@ -83,6 +83,10 @@ cd ostinato-radio
 # Copy and fill in your credentials
 cp .env.example .env
 # Edit .env with your Qobuz email, password, and Last.fm API key
+
+# Optional: enable password protection for remote access
+cargo run --bin ostinato-hash-password
+# Enter a password and copy the generated hash into .env as APP_PASSWORD_HASH
 ```
 
 ### 2. Start
@@ -197,6 +201,7 @@ poll_interval_seconds = 5
 | `QOBUZ_APP_ID` | No | Manual override for Qobuz app_id (if bundle scraping breaks) |
 | `QOBUZ_APP_SECRET` | No | Manual override for Qobuz app_secret |
 | `LASTFM_API_KEY` | Yes | Last.fm API key |
+| `APP_PASSWORD_HASH` | No | Enable remote access protection (generate with `ostinato-hash-password` binary) |
 | `CLOUDFLARE_ACCOUNT_ID` | No | For Workers AI |
 | `CLOUDFLARE_API_TOKEN` | No | For Workers AI |
 | `ANTHROPIC_API_KEY` | No | For Anthropic AI provider |

@@ -17,7 +17,6 @@ pub enum AppError {
     Ai(String),
     #[error("LinkPlay error: {0}")]
     LinkPlay(String),
-    #[allow(dead_code)]
     #[error("Authentication required")]
     Unauthorized,
     #[error("Resource not found")]

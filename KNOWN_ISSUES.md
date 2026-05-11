@@ -109,7 +109,6 @@ These are from spec §10 and need real-world testing before fully relying on the
 
 - **Config env var prefix** is `OSTINATO__` (double underscore), but many natural env vars like `QOBUZ_EMAIL` are read separately in code, not through the config crate. This is intentional but slightly inconsistent.
 - **No rate limiting** on any endpoint yet.
-- **No auth cookie / session** for PWA → backend. Currently relies on the backend being single-user self-hosted. `Unauthorized` error variant exists but is never used.
 - **CORS is fully permissive** (`CorsLayer::permissive()`) — fine for local dev, tighten for production.
 - **Frontend proxy config** in `vite.config.ts` proxies individual route prefixes. Could be consolidated with `/api` prefix on backend.
 - **Frontend `BASE` URL in `api.ts`** is empty string — relies on Vite proxy in dev, same-origin in production.

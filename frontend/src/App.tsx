@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react'
-import { API_BASE, checkAuth } from './api'
+import { AuthProvider, useAuth } from './AuthContext'
+import { checkAuth } from './api'
 import Home from './components/Home'
+import LoginScreen from './components/LoginScreen'
 import RadioSession from './components/RadioSession'
 import Settings from './components/Settings'
 
@@ -20,27 +22,41 @@ export interface RadioData {
   target: string
 }
 
-function App() {
+function AppInner() {
+  const { token, logout } = useAuth()
   const [view, setView] = useState<View>('home')
   const [radio, setRadio] = useState<RadioData | null>(null)
-  const [authOk, setAuthOk] = useState<boolean | null>(null)
+  const [authState, setAuthState] = useState<{
+    qobuzAuth: boolean
+    hasPassword: boolean
+  } | null>(null)
+  const [showLogin, setShowLogin] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    checkAuth().then((ok) => setAuthOk(ok)).catch(() => setAuthOk(false))
-  }, [])
+    checkAuth().then((data) => {
+      setAuthState({ qobuzAuth: data.authenticated, hasPassword: data.has_password })
+      if (data.has_password && !token) {
+        setShowLogin(true)
+      }
+    })
+  }, [token])
 
-  if (authOk === null) {
+  if (authState === null) {
     return <div className="loading">Loading...</div>
   }
 
-  if (!authOk) {
+  if (!authState.qobuzAuth) {
     return (
       <div className="screen center">
         <h1>Ostinato Radio</h1>
         <p className="error">Backend not authenticated. Please configure Qobuz credentials and restart the server.</p>
       </div>
     )
+  }
+
+  if (showLogin) {
+    return <LoginScreen onLogin={() => setShowLogin(false)} />
   }
 
   return (
@@ -69,9 +85,17 @@ function App() {
             onError={setError}
           />
         )}
-        {view === 'settings' && <Settings onError={setError} />}
+        {view === 'settings' && <Settings onError={setError} onLogout={logout} />}
       </main>
     </div>
+  )
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppInner />
+    </AuthProvider>
   )
 }
 

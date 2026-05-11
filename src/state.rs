@@ -24,6 +24,8 @@ pub struct AppState {
     pub similar_artists: DashMap<ArtistId, CachedSimilar>,
     pub track_metadata: DashMap<TrackId, TrackMetadata>,
     pub sessions: DashMap<SessionId, RadioSession>,
+    pub password_hash: Option<String>,
+    pub jwt_secret: String,
     pub qobuz: QobuzClient,
     pub lastfm: LastfmClient,
     pub ai: Box<dyn MusicAI + Send + Sync>,
@@ -145,6 +147,8 @@ impl AppState {
         lastfm: LastfmClient,
         ai: Box<dyn MusicAI + Send + Sync>,
         linkplay: LinkplayClient,
+        password_hash: Option<String>,
+        jwt_secret: String,
     ) -> Arc<Self> {
         Arc::new(Self {
             config,
@@ -159,6 +163,8 @@ impl AppState {
             similar_artists: DashMap::new(),
             track_metadata: DashMap::new(),
             sessions: DashMap::new(),
+            password_hash,
+            jwt_secret,
             qobuz,
             lastfm,
             ai,

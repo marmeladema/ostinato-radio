@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { useAuth } from '../AuthContext'
 import { streamUrl, nextTrack, submitFeedback, getSessionStatus } from '../api'
 import { useAudio } from '../hooks/useAudio'
 import type { RadioData } from '../App'
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export default function RadioSession({ radio, onBack, onError }: Props) {
+  const { token } = useAuth()
   const { playing, play, pause, resume, currentTime, duration } = useAudio()
   const [queue, setQueue] = useState(radio.queue)
   const [current, setCurrent] = useState(radio.queue[0] || null)
@@ -24,7 +26,7 @@ export default function RadioSession({ radio, onBack, onError }: Props) {
 
   const handleSkip = async () => {
     if (!current) return
-    await submitFeedback(radio.session_id, {
+    await submitFeedback(token, radio.session_id, {
       track_id: current.track_id,
       action: 'skip',
       progress_ms: Math.floor(currentTime * 1000),
@@ -35,7 +37,7 @@ export default function RadioSession({ radio, onBack, onError }: Props) {
 
   const handleComplete = async () => {
     if (!current) return
-    await submitFeedback(radio.session_id, {
+    await submitFeedback(token, radio.session_id, {
       track_id: current.track_id,
       action: 'complete',
       duration_ms: Math.floor((duration || currentTime) * 1000),
@@ -45,10 +47,10 @@ export default function RadioSession({ radio, onBack, onError }: Props) {
 
   const advance = async () => {
     try {
-      const n = await nextTrack(radio.session_id)
+      const n = await nextTrack(token, radio.session_id)
       setCurrent(n)
       // Refresh full session to get updated queue
-      const status = await getSessionStatus(radio.session_id)
+      const status = await getSessionStatus(token, radio.session_id)
       if (status.current_track) {
         setCurrent(status.current_track)
       }

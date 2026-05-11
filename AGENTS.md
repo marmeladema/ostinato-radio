@@ -48,9 +48,14 @@ docker run -p 8080:8080 \
 
 - `QOBUZ_EMAIL` / `QOBUZ_PASSWORD` — Qobuz user credentials
 - `LASTFM_API_KEY` — Last.fm API key
+
+## Optional Environment Variables
+
+- `APP_PASSWORD_HASH` — Argon2 hash for remote access protection. Generate with `cargo run --bin ostinato-hash-password`. When set, all API routes (except `/health` and `/auth/*`) require a valid JWT token.
 - `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` — for Workers AI
-- `ANTHROPIC_API_KEY` — optional, for Anthropic AI provider
-- `OPENAI_API_KEY` + `OPENAI_BASE_URL` — optional, for OpenAI-compatible provider
+- `ANTHROPIC_API_KEY` — for Anthropic AI provider
+- `OPENAI_API_KEY` + `OPENAI_BASE_URL` — for OpenAI-compatible provider
+- `QOBUZ_APP_ID` / `QOBUZ_APP_SECRET` — manual Qobuz credentials if bundle scraping breaks
 
 ## Key Design Decisions
 

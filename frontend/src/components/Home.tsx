@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useAuth } from '../AuthContext'
 import { startRadio, StartRadioBody } from '../api'
 import type { RadioData } from '../App'
 
@@ -17,6 +18,7 @@ interface Props {
 }
 
 export default function Home({ onRadioStarted, onError }: Props) {
+  const { token } = useAuth()
   const [theme, setTheme] = useState('')
   const [loading, setLoading] = useState(false)
   const [target, setTarget] = useState<'phone' | 'wiim'>('phone')
@@ -26,7 +28,7 @@ export default function Home({ onRadioStarted, onError }: Props) {
     setLoading(true)
     try {
       const body: StartRadioBody = { theme: theme.trim(), target }
-      const data = await startRadio(body)
+      const data = await startRadio(token, body)
       onRadioStarted(data as RadioData)
     } catch (e: any) {
       onError(e.message || 'Failed to start radio')
