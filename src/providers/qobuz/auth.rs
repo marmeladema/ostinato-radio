@@ -60,6 +60,8 @@ impl ScrapedCredentials {
     pub fn from_env_or_scrape(scraped: Option<ScrapedCredentials>) -> Result<ScrapedCredentials> {
         if let Ok(id) = std::env::var("QOBUZ_APP_ID")
             && let Ok(secret) = std::env::var("QOBUZ_APP_SECRET")
+            && !id.is_empty()
+            && !secret.is_empty()
         {
             info!("Using Qobuz credentials from env");
             return Ok(ScrapedCredentials {

@@ -6,19 +6,6 @@ services:
       - "8080:8080"
     env_file:
       - .env
-    environment:
-      # Ensure these are always read from the env_file
-      QOBUZ_EMAIL: ${QOBUZ_EMAIL}
-      QOBUZ_PASSWORD: ${QOBUZ_PASSWORD}
-      LASTFM_API_KEY: ${LASTFM_API_KEY}
-      APP_PASSWORD_HASH: ${APP_PASSWORD_HASH:-}
-      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
-      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
-      QOBUZ_APP_ID: ${QOBUZ_APP_ID:-}
-      QOBUZ_APP_SECRET: ${QOBUZ_APP_SECRET:-}
     restart: unless-stopped
     # The backend binds to 0.0.0.0 so it's reachable from the WiiM on the LAN
     network_mode: host
