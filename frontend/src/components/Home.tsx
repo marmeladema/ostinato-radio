@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { useAuth } from '../AuthContext'
 import { startRadio, StartRadioBody } from '../api'
 import type { RadioData } from '../App'

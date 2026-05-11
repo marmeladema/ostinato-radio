@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../AuthContext'
 import { streamUrl, nextTrack, submitFeedback, getSessionStatus } from '../api'
 import { useAudio } from '../hooks/useAudio'
@@ -14,9 +14,8 @@ export default function RadioSession({ radio, onBack, onError }: Props) {
   const { token } = useAuth()
   const { playing, play, pause, resume, currentTime, duration } = useAudio()
   const [queue, setQueue] = useState(radio.queue)
-  const [current, setCurrent] = useState(radio.queue[0] || null)
+  const [current, setCurrent] = useState<typeof radio.queue[0] | null>(radio.queue[0] || null)
   const [target, setTarget] = useState(radio.target)
-  const startTimeRef = useRef<number>(Date.now())
 
   useEffect(() => {
     if (current && target === 'phone') {

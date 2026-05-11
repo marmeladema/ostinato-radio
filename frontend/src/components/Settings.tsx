@@ -1,11 +1,10 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 
 interface Props {
-  onError: (msg: string) => void
   onLogout: () => void
 }
 
-export default function Settings({ onError, onLogout }: Props) {
+export default function Settings({ onLogout }: Props) {
   const [wiimIp, setWiimIp] = useState(localStorage.getItem('wiimIp') || '')
   const [saved, setSaved] = useState(false)
 

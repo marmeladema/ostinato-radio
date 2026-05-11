@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AuthProvider, useAuth } from './AuthContext'
 import { checkAuth } from './api'
 import Home from './components/Home'
@@ -85,7 +85,7 @@ function AppInner() {
             onError={setError}
           />
         )}
-        {view === 'settings' && <Settings onError={setError} onLogout={logout} />}
+        {view === 'settings' && <Settings onLogout={logout} />}
       </main>
     </div>
   )
