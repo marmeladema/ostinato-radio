@@ -3,6 +3,7 @@ const BASE = '' // Proxied by Vite dev server; in production, same origin
 export interface AuthStatus {
   authenticated: boolean
   has_password: boolean
+  taste_profile_ready: boolean
   message: string
   display_name?: string
   email?: string
@@ -13,11 +14,11 @@ export interface AuthStatus {
 export async function checkAuth(): Promise<AuthStatus> {
   try {
     const res = await fetch(`${BASE}/auth/status`)
-    if (!res.ok) return { authenticated: false, has_password: false, message: 'Error checking auth' }
+    if (!res.ok) return { authenticated: false, has_password: false, taste_profile_ready: false, message: 'Error checking auth' }
     const data = await res.json()
     return data as AuthStatus
   } catch {
-    return { authenticated: false, has_password: false, message: 'Backend unreachable' }
+    return { authenticated: false, has_password: false, taste_profile_ready: false, message: 'Backend unreachable' }
   }
 }
 
@@ -104,7 +105,30 @@ export async function submitFeedback(
   return res.json()
 }
 
-export function streamUrl(trackId: string, sessionId?: string) {
-  const q = sessionId ? `?session=${sessionId}` : ''
-  return `${BASE}/stream/${trackId}${q}`
+export function streamUrl(trackId: string, sessionId?: string, formatId?: number) {
+  const params = new URLSearchParams()
+  if (sessionId) params.set('session', sessionId)
+  if (formatId !== undefined) {
+    params.set('format_id', String(formatId))
+  }
+  const q = params.toString()
+  return `${BASE}/stream/${trackId}${q ? '?' + q : ''}`
+}
+
+export interface StreamInfo {
+  url: string
+  format_id: number
+  format: string
+  sampling_rate: number | null
+  bit_depth: number | null
+}
+
+export async function getTrackStreamInfo(token: string | null, trackId: string, formatId?: number): Promise<StreamInfo> {
+  const headers: Record<string, string> = {}
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
+  const q = formatId !== undefined ? `?format_id=${formatId}` : ''
+  const res = await fetch(`${BASE}/playback/track/${trackId}${q}`, { headers })
+  if (!res.ok) throw new Error('Failed to fetch stream info')
+  return res.json()
 }

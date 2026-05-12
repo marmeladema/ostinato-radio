@@ -35,6 +35,7 @@ pub struct QueuedTrackResponse {
     pub artist: String,
     pub album: String,
     pub image_url: Option<String>,
+    pub duration: Option<u64>,
     pub pool: String,
 }
 
@@ -52,6 +53,17 @@ pub async fn start_radio(
     Json(req): Json<StartRadioRequest>,
 ) -> Result<Json<StartRadioResponse>> {
     let theme = req.theme.to_lowercase();
+
+    // Guard: taste profile must be built before starting radio
+    {
+        let profile = state.taste_profile.read().await;
+        if profile.artists.is_empty() {
+            return Err(AppError::BadRequest(
+                "Taste profile not yet ready. Please wait a moment after authentication and try again."
+                    .to_string(),
+            ));
+        }
+    }
     let target = match req.target.as_str() {
         "wiim" => PlaybackTarget::Wiim,
         _ => PlaybackTarget::Phone,
@@ -75,16 +87,23 @@ pub async fn start_radio(
     )
     .await?;
 
+    if candidates.len() < 5 {
+        return Err(AppError::BadRequest(format!(
+            "Not enough tracks found for theme '{}'. Try a broader theme or check your Qobuz favorites.",
+            theme
+        )));
+    }
+
     let ranked = rank_candidates(
         &state,
         &theme,
-        candidates,
+        &candidates,
         &[],
         state.config.radio.window_size,
     )
     .await?;
 
-    let queue = hydrate_queue(&state, ranked).await?;
+    let queue = hydrate_queue(&state, ranked, &candidates).await?;
 
     let session_id = uuid::Uuid::new_v4().to_string();
     let queue_for_response: Vec<QueuedTrackResponse> = queue
@@ -95,6 +114,7 @@ pub async fn start_radio(
             artist: q.metadata.artist.clone(),
             album: q.metadata.album.clone(),
             image_url: q.metadata.image_url.clone(),
+            duration: q.metadata.duration,
             pool: format!("{:?}", q.pool),
         })
         .collect();
@@ -142,6 +162,7 @@ pub async fn session_status(
         artist: q.metadata.artist.clone(),
         album: q.metadata.album.clone(),
         image_url: q.metadata.image_url.clone(),
+        duration: q.metadata.duration,
         pool: format!("{:?}", q.pool),
     });
 
@@ -163,28 +184,29 @@ pub async fn next_track(
         .get_mut(&session_id)
         .ok_or(AppError::NotFound)?;
 
-    let next = session.queue.pop_front().ok_or(AppError::NotFound)?;
+    // Remove the current track from the queue and push it to history
+    let finished = session.queue.pop_front().ok_or(AppError::NotFound)?;
+    session.history.push(crate::state::PlayedTrack {
+        track_id: finished.track_id.clone(),
+        pool: finished.pool,
+        completed: None,
+        listened_ms: 0,
+    });
 
-    // Add to history
-    state
-        .sessions
-        .get_mut(&session_id)
-        .unwrap()
-        .history
-        .push(crate::state::PlayedTrack {
-            track_id: next.track_id.clone(),
-            pool: next.pool,
-            completed: None,
-            listened_ms: 0,
-        });
+    // Return the NEW current track (front of queue after popping)
+    let current = session
+        .queue
+        .front()
+        .ok_or_else(|| AppError::BadRequest("End of queue".to_string()))?;
 
     Ok(Json(QueuedTrackResponse {
-        track_id: next.track_id,
-        title: next.metadata.title,
-        artist: next.metadata.artist,
-        album: next.metadata.album,
-        image_url: next.metadata.image_url,
-        pool: format!("{:?}", next.pool),
+        track_id: current.track_id.clone(),
+        title: current.metadata.title.clone(),
+        artist: current.metadata.artist.clone(),
+        album: current.metadata.album.clone(),
+        image_url: current.metadata.image_url.clone(),
+        duration: current.metadata.duration,
+        pool: format!("{:?}", current.pool),
     }))
 }
 

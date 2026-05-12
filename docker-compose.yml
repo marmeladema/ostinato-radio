@@ -6,6 +6,7 @@ services:
       - "8087:8087"
     volumes:
       - ./config.toml:/app/config.toml:ro
+      - ./data:/app/data
     env_file:
       - .env
     restart: unless-stopped

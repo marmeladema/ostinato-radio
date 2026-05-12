@@ -2,7 +2,8 @@ use crate::errors::{AppError, Result};
 use crate::providers::qobuz::bundle::QobuzCredentials;
 use tracing::{info, warn};
 
-const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/110.0";
+const USER_AGENT: &str =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/110.0";
 
 #[derive(Debug, Clone)]
 pub struct QobuzUserProfile {
@@ -23,10 +24,7 @@ pub fn build_oauth_url(app_id: &str, redirect_url: &str) -> String {
 }
 
 /// Exchange a short-lived authorization code for a persistent user auth token.
-pub async fn exchange_code(
-    creds: &QobuzCredentials,
-    code: &str,
-) -> Result<(String, String)> {
+pub async fn exchange_code(creds: &QobuzCredentials, code: &str) -> Result<(String, String)> {
     let client = reqwest::Client::builder()
         .user_agent(USER_AGENT)
         .build()
@@ -48,9 +46,10 @@ pub async fn exchange_code(
         .map_err(|e| AppError::Qobuz(format!("oauth exchange request failed: {}", e)))?;
 
     let status = resp.status();
-    let body: serde_json::Value = resp.json().await.map_err(|e| {
-        AppError::Qobuz(format!("oauth exchange parse failed: {}", e))
-    })?;
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| AppError::Qobuz(format!("oauth exchange parse failed: {}", e)))?;
 
     if !status.is_success() {
         let msg = body
@@ -94,14 +93,13 @@ pub async fn confirm_session(
         .body("extra=partner")
         .send()
         .await
-        .map_err(|e| {
-            AppError::Qobuz(format!("user/login confirm request failed: {}", e))
-        })?;
+        .map_err(|e| AppError::Qobuz(format!("user/login confirm request failed: {}", e)))?;
 
     let status = resp.status();
-    let body: serde_json::Value = resp.json().await.map_err(|e| {
-        AppError::Qobuz(format!("user/login confirm parse failed: {}", e))
-    })?;
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| AppError::Qobuz(format!("user/login confirm parse failed: {}", e)))?;
 
     if !status.is_success() {
         let msg = body
@@ -161,8 +159,9 @@ pub async fn load_credentials(config: &crate::config::Config) -> Result<QobuzCre
         std::env::var("QOBUZ_APP_ID"),
         std::env::var("QOBUZ_PRIVATE_KEY"),
         std::env::var("QOBUZ_APP_SECRET"),
-    )
-        && !id.is_empty() && !key.is_empty() && !secret.is_empty()
+    ) && !id.is_empty()
+        && !key.is_empty()
+        && !secret.is_empty()
     {
         info!("Using Qobuz credentials from environment variables");
         return Ok(QobuzCredentials {

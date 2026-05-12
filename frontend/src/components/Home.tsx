@@ -13,18 +13,19 @@ const PRESETS = [
 ]
 
 interface Props {
+  tasteProfileReady: boolean
   onRadioStarted: (data: RadioData) => void
   onError: (msg: string) => void
 }
 
-export default function Home({ onRadioStarted, onError }: Props) {
+export default function Home({ tasteProfileReady, onRadioStarted, onError }: Props) {
   const { token } = useAuth()
   const [theme, setTheme] = useState('')
   const [loading, setLoading] = useState(false)
   const [target, setTarget] = useState<'phone' | 'wiim'>('phone')
 
   const handleStart = async () => {
-    if (!theme.trim()) return
+    if (!theme.trim() || !tasteProfileReady) return
     setLoading(true)
     try {
       const body: StartRadioBody = { theme: theme.trim(), target }
@@ -69,8 +70,18 @@ export default function Home({ onRadioStarted, onError }: Props) {
         </label>
       </div>
 
-      <button className="primary-btn" disabled={loading || !theme.trim()} onClick={handleStart}>
-        {loading ? 'Starting...' : 'Start Radio'}
+      {!tasteProfileReady && (
+        <p className="info" style={{ marginTop: 12 }}>
+          Building your taste profile... Please wait a moment.
+        </p>
+      )}
+
+      <button
+        className="primary-btn"
+        disabled={loading || !theme.trim() || !tasteProfileReady}
+        onClick={handleStart}
+      >
+        {loading ? 'Starting...' : tasteProfileReady ? 'Start Radio' : 'Profile loading...'}
       </button>
     </div>
   )

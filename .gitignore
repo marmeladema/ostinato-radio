@@ -2,3 +2,5 @@
 .env
 config.toml
 *.swp
+/data/
+qobuz_auth.json

@@ -1,11 +1,12 @@
-use std::collections::HashSet;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use regex::Regex;
+use std::collections::HashSet;
 
 use crate::errors::{AppError, Result};
 
 const PLAYER_URL: &str = "https://play.qobuz.com";
-const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/110.0";
+const USER_AGENT: &str =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/110.0";
 
 #[derive(Debug, Clone)]
 pub struct QobuzCredentials {
@@ -23,7 +24,8 @@ pub async fn scrape_credentials() -> Result<QobuzCredentials> {
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
 
-    let bundle = fetch_bundle(&client).await
+    let bundle = fetch_bundle(&client)
+        .await
         .map_err(|e| AppError::Qobuz(format!("Failed to fetch bundle: {}", e)))?;
 
     let app_id = find_app_id(&bundle)
@@ -34,10 +36,16 @@ pub async fn scrape_credentials() -> Result<QobuzCredentials> {
 
     let app_secret = find_app_secrets(&bundle);
     if app_secret.is_empty() {
-        return Err(AppError::Qobuz("Could not find app_secret candidates in bundle".to_string()));
+        return Err(AppError::Qobuz(
+            "Could not find app_secret candidates in bundle".to_string(),
+        ));
     }
 
-    Ok(QobuzCredentials { app_id, private_key, app_secret })
+    Ok(QobuzCredentials {
+        app_id,
+        private_key,
+        app_secret,
+    })
 }
 
 async fn fetch_bundle(client: &reqwest::Client) -> Result<String> {
@@ -55,10 +63,12 @@ async fn fetch_bundle(client: &reqwest::Client) -> Result<String> {
     let re = Regex::new(r#"<script src="(/resources/\d+\.\d+\.\d+-[a-z]\d{3}/bundle\.js)"#)
         .map_err(|_| AppError::Internal("Bundle regex compilation failed".to_string()))?;
 
-    let caps = re.captures(&login_page)
-        .ok_or_else(|| AppError::Qobuz("Could not find bundle.js path in login page".to_string()))?;
+    let caps = re.captures(&login_page).ok_or_else(|| {
+        AppError::Qobuz("Could not find bundle.js path in login page".to_string())
+    })?;
 
-    let bundle_path = caps.get(1)
+    let bundle_path = caps
+        .get(1)
         .ok_or_else(|| AppError::Qobuz("Could not extract bundle.js path".to_string()))?
         .as_str();
 
@@ -136,18 +146,14 @@ fn find_app_secrets(bundle: &str) -> Vec<String> {
 
     // Primary: seed/timezone/info/extras extraction (proven method)
     if let Ok(seed_re) = Regex::new(
-        r#"\):[a-z]\.initialSeed\("(?P<seed>.*?)",window\.utimezone\.(?P<timezone>[a-z]+)\)"#
-    )
-        && let Some(seed_caps) = seed_re.captures(bundle)
+        r#"\):[a-z]\.initialSeed\("(?P<seed>.*?)",window\.utimezone\.(?P<timezone>[a-z]+)\)"#,
+    ) && let Some(seed_caps) = seed_re.captures(bundle)
     {
         let seed = seed_caps.name("seed").map(|m| m.as_str()).unwrap_or("");
         let timezone = seed_caps.name("timezone").map(|m| m.as_str()).unwrap_or("");
         let title_case = capitalize_first_letter(timezone);
 
-        let info_extras_pattern = format!(
-            r#"name:"[^"]*/{}"[^}}]*"#,
-            regex::escape(&title_case)
-        );
+        let info_extras_pattern = format!(r#"name:"[^"]*/{}"[^}}]*"#, regex::escape(&title_case));
         if let Ok(info_extras_re) = Regex::new(&info_extras_pattern)
             && let Some(info_extras_caps) = info_extras_re.captures(bundle)
         {
@@ -251,15 +257,21 @@ mod tests {
         let bundle = load_fixture();
         let key = find_private_key(&bundle).expect("Expected private_key in fixture");
         assert!(!key.is_empty(), "private_key should not be empty");
-        assert!(key.chars().all(|c| c.is_alphanumeric()),
-            "private_key should be alphanumeric: got {}", key);
+        assert!(
+            key.chars().all(|c| c.is_alphanumeric()),
+            "private_key should be alphanumeric: got {}",
+            key
+        );
     }
 
     #[test]
     fn test_find_app_secrets() {
         let bundle = load_fixture();
         let secrets = find_app_secrets(&bundle);
-        assert!(!secrets.is_empty(), "Expected at least one app_secret candidate");
+        assert!(
+            !secrets.is_empty(),
+            "Expected at least one app_secret candidate"
+        );
         for s in &secrets {
             assert_eq!(s.len(), 32, "app_secret should be 32 chars: got {}", s);
             assert!(

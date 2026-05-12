@@ -24,6 +24,7 @@ impl LastfmClient {
         }
     }
 
+    #[allow(dead_code)]
     pub async fn get_similar_artists(&self, artist: &str) -> Result<Vec<SimilarArtist>> {
         let params = [
             ("method", "artist.getSimilar"),

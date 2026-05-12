@@ -7,7 +7,7 @@ use std::sync::Arc;
 pub async fn rank_candidates(
     state: &Arc<AppState>,
     theme: &str,
-    candidates: Vec<Candidate>,
+    candidates: &[Candidate],
     already_played: &[String],
     target_count: usize,
 ) -> Result<Vec<RankedTrack>> {
@@ -15,7 +15,7 @@ pub async fn rank_candidates(
     let ctx = RankingContext {
         theme,
         taste_profile: &profile,
-        candidates: &candidates,
+        candidates,
         already_played,
         target_count,
         pool_ratios: state.config.radio.default_pool_ratios.clone(),

@@ -1,5 +1,6 @@
 use crate::errors::{AppError, Result};
 use crate::state::TrackMetadata;
+use serde::Serialize;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use reqwest::Client;
@@ -7,11 +8,12 @@ use reqwest::Client;
 pub mod auth;
 pub mod bundle;
 
-const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/110.0";
+const USER_AGENT: &str =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/110.0";
 
 #[derive(Debug, Clone)]
 pub struct QobuzClient {
-    client: Client,
+    pub client: Client,
     base_url: String,
 }
 
@@ -37,13 +39,13 @@ impl QobuzClient {
         &self,
         auth: &crate::state::QobuzAuth,
     ) -> Result<QobuzFavorites> {
-        let params = vec![
-            ("limit", "5000"),
-            ("offset", "0"),
-        ];
+        tracing::info!("Fetching Qobuz user favorites...");
+        let params = vec![("limit", "5000"), ("offset", "0")];
         let body: serde_json::Value = self
             .signed_get("/favorite/getUserFavorites", &params, auth)
             .await?;
+
+        use crate::state::TrackMetadata;
 
         let mut artists = Vec::new();
         let mut albums = Vec::new();
@@ -77,14 +79,57 @@ impl QobuzClient {
             .and_then(|v| v.as_array())
         {
             for item in arr {
-                if let Some(id) = item
+                let id = item
                     .get("id")
-                    .and_then(|v| v.as_i64())
-                    .map(|v| v.to_string())
-                {
-                    albums.push(id);
+                    .and_then(|v| v.as_i64().map(|i| i.to_string()))
+                    .or_else(|| {
+                        item.get("id")
+                            .and_then(|v| v.as_str().map(|s| s.to_string()))
+                    });
+                if let Some(id) = id {
+                    let artist_id = item
+                        .get("artist")
+                        .and_then(|v| v.get("id"))
+                        .and_then(|v| v.as_i64().map(|i| i.to_string()))
+                        .or_else(|| {
+                            item.get("artist_id")
+                                .and_then(|v| v.as_str().map(|s| s.to_string()))
+                        })
+                        .unwrap_or_default();
+                    let artist_name = item
+                        .get("artist")
+                        .and_then(|v| v.get("name"))
+                        .and_then(|v| v.as_str())
+                        .or_else(|| item.get("artist").and_then(|v| v.as_str()))
+                        .unwrap_or("")
+                        .to_string();
+                    albums.push(QobuzAlbum {
+                        id,
+                        title: item
+                            .get("title")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        artist_id,
+                        artist_name,
+                        release_date: item
+                            .get("release_date")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                    });
+                } else {
+                    tracing::warn!(
+                        "Skipping album item without parseable id: {:?}",
+                        item.get("id")
+                    );
                 }
             }
+        } else {
+            tracing::warn!(
+                "No albums array in favorites response. Keys: {:?}",
+                body.as_object().map(|o| o.keys().collect::<Vec<_>>())
+            );
         }
         if let Some(arr) = body
             .get("tracks")
@@ -92,16 +137,54 @@ impl QobuzClient {
             .and_then(|v| v.as_array())
         {
             for item in arr {
-                if let Some(id) = item
-                    .get("id")
-                    .and_then(|v| v.as_i64())
-                    .map(|v| v.to_string())
-                {
-                    tracks.push(id);
+                if let Some(id) = item.get("id").and_then(|v| v.as_i64()) {
+                    tracks.push(TrackMetadata {
+                        id: id.to_string(),
+                        title: item
+                            .get("title")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        artist: item
+                            .get("performer")
+                            .and_then(|v| v.get("name"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        artist_id: item
+                            .get("performer")
+                            .and_then(|v| v.get("id"))
+                            .and_then(|v| v.as_i64())
+                            .map(|v| v.to_string()),
+                        album: item
+                            .get("album")
+                            .and_then(|v| v.get("title"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        album_id: item
+                            .get("album")
+                            .and_then(|v| v.get("id"))
+                            .and_then(|v| v.as_i64())
+                            .map(|v| v.to_string()),
+                        duration: item.get("duration").and_then(|v| v.as_u64()),
+                        image_url: item
+                            .get("album")
+                            .and_then(|a| a.get("image"))
+                            .and_then(|i| i.get("large"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
+                    });
                 }
             }
         }
 
+        tracing::info!(
+            "Fetched Qobuz favorites: {} artists, {} albums, {} tracks",
+            artists.len(),
+            albums.len(),
+            tracks.len()
+        );
         Ok(QobuzFavorites {
             artists,
             albums,
@@ -109,16 +192,20 @@ impl QobuzClient {
         })
     }
 
+    #[allow(dead_code)]
     pub async fn get_artist_with_albums(
         &self,
         auth: &crate::state::QobuzAuth,
         artist_id: &str,
     ) -> Result<QobuzArtistDetail> {
-        let params = vec![
-            ("artist_id", artist_id),
-            ("extra", "albums"),
-        ];
+        let params = vec![("artist_id", artist_id), ("extra", "albums")];
         let body: serde_json::Value = self.get("/artist/get", &params, Some(auth)).await?;
+
+        let artist_name = body
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
 
         let albums = body
             .get("albums")
@@ -130,6 +217,8 @@ impl QobuzClient {
                         Some(QobuzAlbum {
                             id: item.get("id")?.as_i64()?.to_string(),
                             title: item.get("title")?.as_str()?.to_string(),
+                            artist_id: artist_id.to_string(),
+                            artist_name: artist_name.clone(),
                             release_date: item
                                 .get("release_date")?
                                 .as_str()
@@ -170,7 +259,17 @@ impl QobuzClient {
                             id: item.get("id")?.as_i64()?.to_string(),
                             title: item.get("title")?.as_str()?.to_string(),
                             artist: item.get("performer")?.get("name")?.as_str()?.to_string(),
+                            artist_id: item
+                                .get("performer")
+                                .and_then(|v| v.get("id"))
+                                .and_then(|v| v.as_i64())
+                                .map(|v| v.to_string()),
                             album: item.get("album")?.get("title")?.as_str()?.to_string(),
+                            album_id: item
+                                .get("album")
+                                .and_then(|v| v.get("id"))
+                                .and_then(|v| v.as_i64())
+                                .map(|v| v.to_string()),
                             duration: item.get("duration").and_then(|v| v.as_u64()),
                             image_url: item
                                 .get("album")
@@ -187,6 +286,7 @@ impl QobuzClient {
         Ok(tracks)
     }
 
+    #[allow(dead_code)]
     pub async fn get_track_metadata(
         &self,
         auth: &crate::state::QobuzAuth,
@@ -208,12 +308,22 @@ impl QobuzClient {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string(),
+            artist_id: body
+                .get("performer")
+                .and_then(|v| v.get("id"))
+                .and_then(|v| v.as_i64())
+                .map(|v| v.to_string()),
             album: body
                 .get("album")
                 .and_then(|v| v.get("title"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string(),
+            album_id: body
+                .get("album")
+                .and_then(|v| v.get("id"))
+                .and_then(|v| v.as_i64())
+                .map(|v| v.to_string()),
             duration: body.get("duration").and_then(|v| v.as_u64()),
             image_url: body
                 .get("album")
@@ -223,13 +333,36 @@ impl QobuzClient {
                 .map(|s| s.to_string()),
         })
     }
+}
 
+#[derive(Debug, Clone, Serialize)]
+pub struct StreamInfo {
+    pub url: String,
+    pub format_id: u32,
+    pub format: String,
+    pub sampling_rate: Option<f64>,
+    pub bit_depth: Option<u32>,
+}
+
+impl StreamInfo {
+    fn format_name(format_id: u32) -> &'static str {
+        match format_id {
+            5 => "MP3 320",
+            6 => "FLAC 16-bit",
+            7 => "FLAC 24-bit",
+            27 => "FLAC 24-bit >96kHz",
+            _ => "Unknown",
+        }
+    }
+}
+
+impl QobuzClient {
     pub async fn get_file_url(
         &self,
         auth: &crate::state::QobuzAuth,
         track_id: &str,
         format_id: u32,
-    ) -> Result<String> {
+    ) -> Result<StreamInfo> {
         let format_id_str = format_id.to_string();
         let ts = current_timestamp();
 
@@ -272,12 +405,38 @@ impl QobuzClient {
             ));
         }
 
-        let url = body
+        tracing::debug!(
+            "Qobuz getFileUrl raw response for track {}: {}",
+            track_id,
+            serde_json::to_string_pretty(&body).unwrap_or_default()
+        );
+
+        let stream_url = body
             .get("url")
             .and_then(|v| v.as_str())
             .ok_or_else(|| AppError::Qobuz("Missing stream URL".to_string()))?;
 
-        Ok(url.to_string())
+        let sampling_rate = body
+            .get("sampling_rate")
+            .and_then(|v| v.as_f64())
+            .or_else(|| {
+                body.get("sampling_rate")
+                    .and_then(|v| v.as_i64())
+                    .map(|i| i as f64)
+            });
+
+        let bit_depth = body
+            .get("bit_depth")
+            .and_then(|v| v.as_u64())
+            .map(|d| d as u32);
+
+        Ok(StreamInfo {
+            url: stream_url.to_string(),
+            format_id,
+            format: StreamInfo::format_name(format_id).to_string(),
+            sampling_rate,
+            bit_depth,
+        })
     }
 
     // Plain GET for open endpoints (catalog search, track get, etc.)
@@ -299,7 +458,10 @@ impl QobuzClient {
 
         req = req.query(&all_params);
 
-        let resp = req.send().await.map_err(|e| AppError::Qobuz(e.to_string()))?;
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| AppError::Qobuz(e.to_string()))?;
 
         let status = resp.status();
         let body: serde_json::Value = resp
@@ -383,8 +545,8 @@ impl QobuzClient {
 #[derive(Debug, Clone)]
 pub struct QobuzFavorites {
     pub artists: Vec<QobuzArtist>,
-    pub albums: Vec<String>,
-    pub tracks: Vec<String>,
+    pub albums: Vec<QobuzAlbum>,
+    pub tracks: Vec<crate::state::TrackMetadata>,
 }
 
 #[derive(Debug, Clone)]
@@ -394,6 +556,7 @@ pub struct QobuzArtist {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct QobuzArtistDetail {
     pub albums: Vec<QobuzAlbum>,
 }
@@ -402,6 +565,8 @@ pub struct QobuzArtistDetail {
 pub struct QobuzAlbum {
     pub id: String,
     pub title: String,
+    pub artist_id: String,
+    pub artist_name: String,
     pub release_date: String,
 }
 

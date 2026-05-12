@@ -27,12 +27,13 @@ pub struct AppState {
     pub password_hash: Option<String>,
     pub jwt_secret: String,
     pub qobuz: QobuzClient,
+    #[allow(dead_code)]
     pub lastfm: LastfmClient,
     pub ai: Box<dyn MusicAI + Send + Sync>,
     pub linkplay: LinkplayClient,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct QobuzAuth {
     pub app_id: String,
     pub app_secret: String,
@@ -43,16 +44,57 @@ pub struct QobuzAuth {
     pub email: Option<String>,
     pub country_code: Option<String>,
     pub subscription: Option<String>,
-    pub obtained_at: Option<Instant>,
+    /// Unix timestamp (seconds) when this auth was obtained.
+    #[serde(default)]
+    pub obtained_at_ts: Option<u64>,
+}
+
+impl QobuzAuth {
+    pub fn is_populated(&self) -> bool {
+        !self.app_id.is_empty() && !self.app_secret.is_empty() && !self.user_auth_token.is_empty()
+    }
+
+    pub fn maybe_load(path: &std::path::Path) -> Option<Self> {
+        let bytes = std::fs::read(path).ok()?;
+        let auth: Self = serde_json::from_slice(&bytes).ok()?;
+        if auth.is_populated() {
+            tracing::info!("Loaded Qobuz auth from {}", path.display());
+            Some(auth)
+        } else {
+            tracing::warn!(
+                "Qobuz auth file {} was incomplete, ignoring",
+                path.display()
+            );
+            None
+        }
+    }
+
+    pub fn save(&self, path: &std::path::Path) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, serde_json::to_vec_pretty(self)?)?;
+        tracing::info!("Saved Qobuz auth to {}", path.display());
+        Ok(())
+    }
 }
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct TasteProfile {
     pub artists: HashMap<ArtistId, ArtistWeight>,
-    pub albums: Vec<AlbumId>,
-    pub tracks: Vec<TrackId>,
+    pub albums: Vec<AlbumEntry>,
+    pub tracks: Vec<TrackMetadata>,
     pub last_full_refresh: Instant,
+}
+
+#[derive(Debug, Clone)]
+pub struct AlbumEntry {
+    pub id: AlbumId,
+    pub title: String,
+    pub artist_id: ArtistId,
+    pub artist_name: String,
+    pub release_date: String,
 }
 
 #[derive(Debug, Clone)]
@@ -142,7 +184,9 @@ pub struct TrackMetadata {
     pub id: TrackId,
     pub title: String,
     pub artist: String,
+    pub artist_id: Option<String>,
     pub album: String,
+    pub album_id: Option<String>,
     pub duration: Option<u64>,
     pub image_url: Option<String>,
 }
@@ -157,9 +201,11 @@ impl AppState {
         password_hash: Option<String>,
         jwt_secret: String,
     ) -> Arc<Self> {
+        let auth_path = std::path::Path::new("data/qobuz_auth.json");
+        let qobuz_auth = QobuzAuth::maybe_load(auth_path).unwrap_or_default();
         Arc::new(Self {
             config,
-            qobuz_auth: RwLock::new(QobuzAuth::default()),
+            qobuz_auth: RwLock::new(qobuz_auth),
             taste_profile: RwLock::new(TasteProfile {
                 artists: HashMap::new(),
                 albums: Vec::new(),

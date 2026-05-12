@@ -27,6 +27,9 @@ pub struct Candidate {
     pub id: String,
     pub track_title: String,
     pub artist_name: String,
+    pub album: String,
+    pub duration: Option<u64>,
+    pub image_url: Option<String>,
     pub pool: crate::state::Pool,
     pub source_tags: Vec<String>,
 }

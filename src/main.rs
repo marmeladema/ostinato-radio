@@ -165,7 +165,12 @@ async fn main() -> Result<(), errors::AppError> {
                 auth.email = Some(profile.email);
                 auth.country_code = Some(profile.country_code);
                 auth.subscription = profile.subscription;
-                auth.obtained_at = Some(std::time::Instant::now());
+                auth.obtained_at_ts = Some(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs(),
+                );
             }
             Err(e) => {
                 tracing::warn!("Warm boot failed: {}. Proceeding with cold boot.", e);
@@ -234,6 +239,10 @@ fn build_router(state: Arc<AppState>, _config: &Config) -> Router {
         .route("/auth/callback", get(routes::auth::oauth_callback))
         .route("/auth/login", post(routes::auth::login))
         .route("/auth/logout", post(routes::auth::logout))
+        .route(
+            "/debug/stream/{track_id}",
+            get(routes::playback::stream_debug),
+        )
         .with_state(state.clone());
 
     // Protected routes: auth required when password hash is set
@@ -247,6 +256,10 @@ fn build_router(state: Arc<AppState>, _config: &Config) -> Router {
             get(routes::playback::wiim_m3u),
         )
         .route("/playback/control", get(routes::playback::wiim_control))
+        .route(
+            "/playback/track/{track_id}",
+            get(routes::playback::track_stream_info),
+        )
         .route(
             "/feedback/{session_id}",
             post(routes::feedback::submit_feedback),

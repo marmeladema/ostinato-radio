@@ -18,6 +18,7 @@ export interface RadioData {
     artist: string
     album: string
     image_url?: string
+    duration?: number
     pool: string
   }[]
   target: string
@@ -94,6 +95,7 @@ function AppInner() {
       <main>
         {view === 'home' && (
           <Home
+            tasteProfileReady={authState.taste_profile_ready}
             onRadioStarted={(data) => {
               setRadio(data)
               setView('radio')
