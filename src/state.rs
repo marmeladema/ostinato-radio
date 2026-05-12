@@ -36,7 +36,14 @@ pub struct AppState {
 pub struct QobuzAuth {
     pub app_id: String,
     pub app_secret: String,
+    pub private_key: String,
     pub user_auth_token: String,
+    pub user_id: Option<String>,
+    pub display_name: Option<String>,
+    pub email: Option<String>,
+    pub country_code: Option<String>,
+    pub subscription: Option<String>,
+    pub obtained_at: Option<Instant>,
 }
 
 #[allow(dead_code)]

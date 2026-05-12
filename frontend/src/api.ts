@@ -1,13 +1,34 @@
 const BASE = '' // Proxied by Vite dev server; in production, same origin
 
-export async function checkAuth(): Promise<{ authenticated: boolean; has_password: boolean }> {
+export interface AuthStatus {
+  authenticated: boolean
+  has_password: boolean
+  message: string
+  display_name?: string
+  email?: string
+  country_code?: string
+  subscription?: string
+}
+
+export async function checkAuth(): Promise<AuthStatus> {
   try {
     const res = await fetch(`${BASE}/auth/status`)
-    if (!res.ok) return { authenticated: false, has_password: false }
+    if (!res.ok) return { authenticated: false, has_password: false, message: 'Error checking auth' }
     const data = await res.json()
-    return { authenticated: data.authenticated, has_password: data.has_password }
+    return data as AuthStatus
   } catch {
-    return { authenticated: false, has_password: false }
+    return { authenticated: false, has_password: false, message: 'Backend unreachable' }
+  }
+}
+
+export async function startOauth(): Promise<string | null> {
+  try {
+    const res = await fetch(`${BASE}/auth/start`)
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.oauth_url as string
+  } catch {
+    return null
   }
 }
 

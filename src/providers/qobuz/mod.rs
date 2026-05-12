@@ -3,9 +3,11 @@ use crate::state::TrackMetadata;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use reqwest::Client;
-use tracing::info;
 
 pub mod auth;
+pub mod bundle;
+
+const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/110.0";
 
 #[derive(Debug, Clone)]
 pub struct QobuzClient {
@@ -21,58 +23,14 @@ impl Default for QobuzClient {
 
 impl QobuzClient {
     pub fn new() -> Self {
+        let client = Client::builder()
+            .user_agent(USER_AGENT)
+            .build()
+            .unwrap_or_else(|_| Client::new());
         Self {
-            client: Client::new(),
+            client,
             base_url: "https://www.qobuz.com/api.json/0.2".to_string(),
         }
-    }
-
-    pub async fn login(
-        &self,
-        app_id: &str,
-        app_secret: &str,
-        email: &str,
-        password: &str,
-    ) -> Result<String> {
-        let params = vec![("app_id", app_id), ("email", email), ("password", password)];
-        let sig = sign_request("user", "login", &params, app_secret)?;
-        let url = format!("{}/user/login", self.base_url);
-
-        let resp = self
-            .client
-            .get(&url)
-            .query(&params)
-            .query(&[("request_ts", &sig.ts), ("request_sig", &sig.sig)])
-            .send()
-            .await
-            .map_err(|e| AppError::Qobuz(e.to_string()))?;
-
-        let status = resp.status();
-        let body: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| AppError::Qobuz(e.to_string()))?;
-
-        if !status.is_success() {
-            let msg = body
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("login failed");
-            tracing::error!(
-                "Qobuz login failed: status={}, body={}",
-                status,
-                serde_json::to_string(&body).unwrap_or_default()
-            );
-            return Err(AppError::Qobuz(msg.to_string()));
-        }
-
-        let token = body
-            .get("user_auth_token")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| AppError::Qobuz("Missing user_auth_token".to_string()))?;
-
-        info!("Qobuz login successful");
-        Ok(token.to_string())
     }
 
     pub async fn get_user_favorites(
@@ -80,35 +38,12 @@ impl QobuzClient {
         auth: &crate::state::QobuzAuth,
     ) -> Result<QobuzFavorites> {
         let params = vec![
-            ("app_id", auth.app_id.as_str()),
-            ("user_auth_token", auth.user_auth_token.as_str()),
+            ("limit", "5000"),
+            ("offset", "0"),
         ];
-        let sig = sign_request("favorite", "getUserFavorites", &params, &auth.app_secret)?;
-        let url = format!("{}/favorite/getUserFavorites", self.base_url);
-
-        let resp = self
-            .client
-            .get(&url)
-            .query(&params)
-            .query(&[("request_ts", &sig.ts), ("request_sig", &sig.sig)])
-            .send()
-            .await
-            .map_err(|e| AppError::Qobuz(e.to_string()))?;
-
-        let status = resp.status();
-        let body: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| AppError::Qobuz(e.to_string()))?;
-
-        if !status.is_success() {
-            return Err(AppError::Qobuz(
-                body.get("message")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("get favorites failed")
-                    .to_string(),
-            ));
-        }
+        let body: serde_json::Value = self
+            .signed_get("/favorite/getUserFavorites", &params, auth)
+            .await?;
 
         let mut artists = Vec::new();
         let mut albums = Vec::new();
@@ -180,37 +115,10 @@ impl QobuzClient {
         artist_id: &str,
     ) -> Result<QobuzArtistDetail> {
         let params = vec![
-            ("app_id", auth.app_id.as_str()),
-            ("user_auth_token", auth.user_auth_token.as_str()),
             ("artist_id", artist_id),
             ("extra", "albums"),
         ];
-        let sig = sign_request("artist", "get", &params, &auth.app_secret)?;
-        let url = format!("{}/artist/get", self.base_url);
-
-        let resp = self
-            .client
-            .get(&url)
-            .query(&params)
-            .query(&[("request_ts", &sig.ts), ("request_sig", &sig.sig)])
-            .send()
-            .await
-            .map_err(|e| AppError::Qobuz(e.to_string()))?;
-
-        let status = resp.status();
-        let body: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| AppError::Qobuz(e.to_string()))?;
-
-        if !status.is_success() {
-            return Err(AppError::Qobuz(
-                body.get("message")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("artist get failed")
-                    .to_string(),
-            ));
-        }
+        let body: serde_json::Value = self.get("/artist/get", &params, Some(auth)).await?;
 
         let albums = body
             .get("albums")
@@ -244,38 +152,12 @@ impl QobuzClient {
     ) -> Result<Vec<TrackMetadata>> {
         let limit_str = limit.to_string();
         let params = vec![
-            ("app_id", auth.app_id.as_str()),
-            ("user_auth_token", auth.user_auth_token.as_str()),
-            ("type", "tracks"),
             ("query", query),
+            ("type", "tracks"),
             ("limit", &limit_str),
+            ("offset", "0"),
         ];
-        let sig = sign_request("catalog", "search", &params, &auth.app_secret)?;
-        let url = format!("{}/catalog/search", self.base_url);
-
-        let resp = self
-            .client
-            .get(&url)
-            .query(&params)
-            .query(&[("request_ts", &sig.ts), ("request_sig", &sig.sig)])
-            .send()
-            .await
-            .map_err(|e| AppError::Qobuz(e.to_string()))?;
-
-        let status = resp.status();
-        let body: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| AppError::Qobuz(e.to_string()))?;
-
-        if !status.is_success() {
-            return Err(AppError::Qobuz(
-                body.get("message")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("search failed")
-                    .to_string(),
-            ));
-        }
+        let body: serde_json::Value = self.get("/catalog/search", &params, Some(auth)).await?;
 
         let tracks = body
             .get("tracks")
@@ -310,37 +192,8 @@ impl QobuzClient {
         auth: &crate::state::QobuzAuth,
         track_id: &str,
     ) -> Result<TrackMetadata> {
-        let params = vec![
-            ("app_id", auth.app_id.as_str()),
-            ("user_auth_token", auth.user_auth_token.as_str()),
-            ("track_id", track_id),
-        ];
-        let sig = sign_request("track", "get", &params, &auth.app_secret)?;
-        let url = format!("{}/track/get", self.base_url);
-
-        let resp = self
-            .client
-            .get(&url)
-            .query(&params)
-            .query(&[("request_ts", &sig.ts), ("request_sig", &sig.sig)])
-            .send()
-            .await
-            .map_err(|e| AppError::Qobuz(e.to_string()))?;
-
-        let status = resp.status();
-        let body: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| AppError::Qobuz(e.to_string()))?;
-
-        if !status.is_success() {
-            return Err(AppError::Qobuz(
-                body.get("message")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("track get failed")
-                    .to_string(),
-            ));
-        }
+        let params = vec![("track_id", track_id)];
+        let body: serde_json::Value = self.get("/track/get", &params, Some(auth)).await?;
 
         Ok(TrackMetadata {
             id: track_id.to_string(),
@@ -378,20 +231,28 @@ impl QobuzClient {
         format_id: u32,
     ) -> Result<String> {
         let format_id_str = format_id.to_string();
-        let params = vec![
-            ("app_id", auth.app_id.as_str()),
-            ("user_auth_token", auth.user_auth_token.as_str()),
-            ("track_id", track_id),
-            ("format_id", &format_id_str),
-        ];
-        let sig = sign_request("track", "getFileUrl", &params, &auth.app_secret)?;
-        let url = format!("{}/track/getFileUrl", self.base_url);
+        let ts = current_timestamp();
 
+        // Old-style Qobuz signature for getFileUrl
+        let sig_payload = format!(
+            "trackgetFileUrlformat_id{}intentstreamtrack_id{}{}{}",
+            format_id_str, track_id, ts, auth.app_secret
+        );
+        let sig = format!("{:x}", md5::compute(sig_payload));
+
+        let url = format!("{}/track/getFileUrl", self.base_url);
         let resp = self
             .client
             .get(&url)
-            .query(&params)
-            .query(&[("request_ts", &sig.ts), ("request_sig", &sig.sig)])
+            .query(&[
+                ("app_id", auth.app_id.as_str()),
+                ("user_auth_token", auth.user_auth_token.as_str()),
+                ("track_id", track_id),
+                ("format_id", &format_id_str),
+                ("intent", "stream"),
+                ("request_ts", &ts),
+                ("request_sig", &sig),
+            ])
             .send()
             .await
             .map_err(|e| AppError::Qobuz(e.to_string()))?;
@@ -417,6 +278,105 @@ impl QobuzClient {
             .ok_or_else(|| AppError::Qobuz("Missing stream URL".to_string()))?;
 
         Ok(url.to_string())
+    }
+
+    // Plain GET for open endpoints (catalog search, track get, etc.)
+    async fn get(
+        &self,
+        endpoint: &str,
+        params: &[(&str, &str)],
+        auth: Option<&crate::state::QobuzAuth>,
+    ) -> Result<serde_json::Value> {
+        let url = format!("{}{}", self.base_url, endpoint);
+        let mut req = self.client.get(&url);
+
+        // Always add app_id if we have auth
+        let mut all_params = params.to_vec();
+        if let Some(a) = auth {
+            all_params.push(("app_id", a.app_id.as_str()));
+            all_params.push(("user_auth_token", a.user_auth_token.as_str()));
+        }
+
+        req = req.query(&all_params);
+
+        let resp = req.send().await.map_err(|e| AppError::Qobuz(e.to_string()))?;
+
+        let status = resp.status();
+        let body: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| AppError::Qobuz(e.to_string()))?;
+
+        if !status.is_success() {
+            return Err(AppError::Qobuz(
+                body.get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("API request failed")
+                    .to_string(),
+            ));
+        }
+
+        Ok(body)
+    }
+
+    // Signed GET for protected endpoints (favorites)
+    async fn signed_get(
+        &self,
+        endpoint: &str,
+        params: &[(&str, &str)],
+        auth: &crate::state::QobuzAuth,
+    ) -> Result<serde_json::Value> {
+        let ts = current_timestamp();
+
+        // New-style Qobuz signature
+        let mut sig_params: Vec<(String, String)> = params
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        sig_params.push(("app_id".to_string(), auth.app_id.clone()));
+        sig_params.push(("method".to_string(), "GET".to_string()));
+        sig_params.push(("timestamp".to_string(), ts.clone()));
+        sig_params.push(("user_auth_token".to_string(), auth.user_auth_token.clone()));
+        sig_params.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let mut sig_string = format!("GET{}", endpoint);
+        for (k, v) in &sig_params {
+            sig_string.push_str(&format!("{}{}", k, v));
+        }
+        sig_string.push_str(&auth.app_secret);
+        let sig = format!("{:x}", md5::compute(sig_string));
+
+        let url = format!("{}{}", self.base_url, endpoint);
+        let mut all_params: Vec<(&str, &str)> = params.to_vec();
+        all_params.push(("app_id", auth.app_id.as_str()));
+        all_params.push(("user_auth_token", auth.user_auth_token.as_str()));
+        all_params.push(("request_ts", &ts));
+        all_params.push(("request_sig", &sig));
+
+        let resp = self
+            .client
+            .get(&url)
+            .query(&all_params)
+            .send()
+            .await
+            .map_err(|e| AppError::Qobuz(e.to_string()))?;
+
+        let status = resp.status();
+        let body: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| AppError::Qobuz(e.to_string()))?;
+
+        if !status.is_success() {
+            return Err(AppError::Qobuz(
+                body.get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("API request failed")
+                    .to_string(),
+            ));
+        }
+
+        Ok(body)
     }
 }
 
@@ -445,47 +405,10 @@ pub struct QobuzAlbum {
     pub release_date: String,
 }
 
-struct Signature {
-    ts: String,
-    sig: String,
-}
-
-fn sign_request(
-    object: &str,
-    method: &str,
-    params: &[(&str, &str)],
-    app_secret: &str,
-) -> Result<Signature> {
-    let ts = SystemTime::now()
+fn current_timestamp() -> String {
+    SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_err(|_| AppError::Internal("Clock error".to_string()))?
+        .unwrap_or_default()
         .as_secs()
-        .to_string();
-
-    let mut keys: Vec<&str> = params.iter().map(|(k, _)| *k).collect();
-    keys.sort_unstable();
-
-    let mut payload = String::new();
-    payload.push_str(object);
-    payload.push_str(method);
-
-    for k in keys {
-        if k == "app_id" || k == "user_auth_token" {
-            continue;
-        }
-        let v = params
-            .iter()
-            .find(|(key, _)| key == &k)
-            .map(|(_, v)| *v)
-            .unwrap_or("");
-        payload.push_str(k);
-        payload.push_str(v);
-    }
-    payload.push_str(&ts);
-    payload.push_str(app_secret);
-
-    let digest = md5::compute(payload);
-    let sig = format!("{:x}", digest);
-
-    Ok(Signature { ts, sig })
+        .to_string()
 }

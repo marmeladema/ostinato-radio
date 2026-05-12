@@ -1,79 +1,203 @@
 use crate::errors::{AppError, Result};
-use regex::Regex;
-use reqwest::Client;
-use tracing::info;
+use crate::providers::qobuz::bundle::QobuzCredentials;
+use tracing::{info, warn};
 
-const BUNDLE_URL: &str = "https://play.qobuz.com/resources/0.5.3-b065/bundle.js";
+const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/110.0";
 
 #[derive(Debug, Clone)]
-pub struct ScrapedCredentials {
-    pub app_id: String,
-    pub app_secret: String,
+pub struct QobuzUserProfile {
+    pub user_id: String,
+    pub display_name: String,
+    pub email: String,
+    pub country_code: String,
+    pub subscription: Option<String>,
 }
 
-pub async fn scrape_bundle() -> Result<ScrapedCredentials> {
-    let client = Client::new();
+/// Build the Qobuz OAuth authorization URL.
+pub fn build_oauth_url(app_id: &str, redirect_url: &str) -> String {
+    let encoded = urlencoding::encode(redirect_url);
+    format!(
+        "https://www.qobuz.com/signin/oauth?ext_app_id={}&redirect_url={}",
+        app_id, encoded
+    )
+}
+
+/// Exchange a short-lived authorization code for a persistent user auth token.
+pub async fn exchange_code(
+    creds: &QobuzCredentials,
+    code: &str,
+) -> Result<(String, String)> {
+    let client = reqwest::Client::builder()
+        .user_agent(USER_AGENT)
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+
+    let url = format!(
+        "https://www.qobuz.com/api.json/0.2/oauth/callback?code={}&private_key={}",
+        urlencoding::encode(code),
+        urlencoding::encode(&creds.private_key)
+    );
+
     let resp = client
-        .get(BUNDLE_URL)
+        .get(&url)
+        .header("X-App-Id", &creds.app_id)
+        .header("Origin", "https://play.qobuz.com")
+        .header("Referer", "https://play.qobuz.com/")
         .send()
         .await
-        .map_err(|e| AppError::Qobuz(format!("Bundle fetch failed: {e}")))?;
+        .map_err(|e| AppError::Qobuz(format!("oauth exchange request failed: {}", e)))?;
 
-    let body = resp
-        .text()
-        .await
-        .map_err(|e| AppError::Qobuz(format!("Bundle read failed: {e}")))?;
+    let status = resp.status();
+    let body: serde_json::Value = resp.json().await.map_err(|e| {
+        AppError::Qobuz(format!("oauth exchange parse failed: {}", e))
+    })?;
 
-    let app_id = extract_app_id(&body)?;
-    let app_secret = extract_app_secret(&body, &app_id)?;
-
-    info!("Scraped Qobuz app_id and app_secret from bundle");
-    Ok(ScrapedCredentials { app_id, app_secret })
-}
-
-fn extract_app_id(body: &str) -> Result<String> {
-    let re = Regex::new(r#"production:\{api:\{appId:"(\d+)""#)
-        .or_else(|_| Regex::new(r#"appId:"(\d+)""#))
-        .map_err(|_| AppError::Qobuz("Failed to compile app_id regex".to_string()))?;
-
-    re.captures(body)
-        .and_then(|c| c.get(1))
-        .map(|m| m.as_str().to_string())
-        .ok_or_else(|| AppError::Qobuz("app_id not found in bundle".to_string()))
-}
-
-fn extract_app_secret(body: &str, app_id: &str) -> Result<String> {
-    let re = Regex::new(&format!(
-        r#"{app_id}}}'?\],\w+\[0x\w+\]=0x\w+\}};var \w+="([a-f0-9]{{32}})""#
-    ))
-    .or_else(|_| Regex::new(r#"secrets?\.([a-f0-9]{32})"#))
-    .or_else(|_| Regex::new(r#"([a-f0-9]{32})"#))
-    .map_err(|_| AppError::Qobuz("Failed to compile app_secret regex".to_string()))?;
-
-    re.captures(body)
-        .and_then(|c| c.get(1))
-        .map(|m| m.as_str().to_string())
-        .ok_or_else(|| AppError::Qobuz("app_secret not found in bundle".to_string()))
-}
-
-impl ScrapedCredentials {
-    pub fn from_env_or_scrape(scraped: Option<ScrapedCredentials>) -> Result<ScrapedCredentials> {
-        if let Ok(id) = std::env::var("QOBUZ_APP_ID")
-            && let Ok(secret) = std::env::var("QOBUZ_APP_SECRET")
-            && !id.is_empty()
-            && !secret.is_empty()
-        {
-            info!("Using Qobuz credentials from env");
-            return Ok(ScrapedCredentials {
-                app_id: id,
-                app_secret: secret,
-            });
-        }
-        scraped.ok_or_else(|| {
-            AppError::Qobuz(
-                "No Qobuz app credentials available (scrape failed and env vars not set)"
-                    .to_string(),
-            )
-        })
+    if !status.is_success() {
+        let msg = body
+            .get("message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("oauth exchange failed");
+        return Err(AppError::Qobuz(msg.to_string()));
     }
+
+    let token = body
+        .get("token")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::Qobuz("Missing token in oauth response".to_string()))?;
+    let user_id = body
+        .get("user_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::Qobuz("Missing user_id in oauth response".to_string()))?;
+
+    Ok((token.to_string(), user_id.to_string()))
+}
+
+/// Confirm the session by calling user/login and retrieve the user profile.
+pub async fn confirm_session(
+    creds: &QobuzCredentials,
+    auth_token: &str,
+) -> Result<QobuzUserProfile> {
+    let client = reqwest::Client::builder()
+        .user_agent(USER_AGENT)
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+
+    let url = "https://www.qobuz.com/api.json/0.2/user/login";
+
+    let resp = client
+        .post(url)
+        .header("X-App-Id", &creds.app_id)
+        .header("X-User-Auth-Token", auth_token)
+        .header("Origin", "https://play.qobuz.com")
+        .header("Referer", "https://play.qobuz.com/")
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .body("extra=partner")
+        .send()
+        .await
+        .map_err(|e| {
+            AppError::Qobuz(format!("user/login confirm request failed: {}", e))
+        })?;
+
+    let status = resp.status();
+    let body: serde_json::Value = resp.json().await.map_err(|e| {
+        AppError::Qobuz(format!("user/login confirm parse failed: {}", e))
+    })?;
+
+    if !status.is_success() {
+        let msg = body
+            .get("message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("session confirmation failed");
+        return Err(AppError::Qobuz(msg.to_string()));
+    }
+
+    let user_id = body
+        .get("id")
+        .and_then(|v| v.as_str())
+        .or_else(|| body.get("user_id").and_then(|v| v.as_str()))
+        .unwrap_or("")
+        .to_string();
+
+    let display_name = format!(
+        "{} {}",
+        body.get("firstname").and_then(|v| v.as_str()).unwrap_or(""),
+        body.get("lastname").and_then(|v| v.as_str()).unwrap_or("")
+    )
+    .trim()
+    .to_string();
+
+    let email = body
+        .get("email")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let country_code = body
+        .get("country_code")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let subscription = body
+        .get("credential")
+        .and_then(|v| v.get("label"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    Ok(QobuzUserProfile {
+        user_id,
+        display_name,
+        email,
+        country_code,
+        subscription,
+    })
+}
+
+/// Load Qobuz credentials with the following precedence:
+/// 1. Environment variables (`QOBUZ_APP_ID`, `QOBUZ_PRIVATE_KEY`, `QOBUZ_APP_SECRET`)
+/// 2. Scraped from the Qobuz web player bundle
+/// 3. Fallback values from config (TOML / env)
+pub async fn load_credentials(config: &crate::config::Config) -> Result<QobuzCredentials> {
+    // 1. Environment variables (highest priority)
+    if let (Ok(id), Ok(key), Ok(secret)) = (
+        std::env::var("QOBUZ_APP_ID"),
+        std::env::var("QOBUZ_PRIVATE_KEY"),
+        std::env::var("QOBUZ_APP_SECRET"),
+    )
+        && !id.is_empty() && !key.is_empty() && !secret.is_empty()
+    {
+        info!("Using Qobuz credentials from environment variables");
+        return Ok(QobuzCredentials {
+            app_id: id,
+            private_key: key,
+            app_secret: vec![secret],
+        });
+    }
+
+    // 2. Scrape from bundle
+    match crate::providers::qobuz::bundle::scrape_credentials().await {
+        Ok(creds) => {
+            info!("Using scraped Qobuz credentials");
+            return Ok(creds);
+        }
+        Err(e) => {
+            warn!("Failed to scrape Qobuz credentials: {}", e);
+        }
+    }
+
+    // 3. Config fallback
+    let qcfg = &config.qobuz;
+    if !qcfg.fallback_app_id.is_empty()
+        && !qcfg.fallback_private_key.is_empty()
+        && !qcfg.fallback_app_secret.is_empty()
+    {
+        info!("Using fallback Qobuz credentials from config");
+        return Ok(QobuzCredentials {
+            app_id: qcfg.fallback_app_id.clone(),
+            private_key: qcfg.fallback_private_key.clone(),
+            app_secret: vec![qcfg.fallback_app_secret.clone()],
+        });
+    }
+
+    Err(AppError::Qobuz(
+        "No Qobuz credentials available (scrape failed and no fallback configured)".to_string(),
+    ))
 }

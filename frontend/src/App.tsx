@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AuthProvider, useAuth } from './AuthContext'
-import { checkAuth } from './api'
+import { checkAuth, startOauth } from './api'
+import type { AuthStatus } from './api'
 import Home from './components/Home'
 import LoginScreen from './components/LoginScreen'
 import RadioSession from './components/RadioSession'
@@ -26,31 +27,53 @@ function AppInner() {
   const { token, logout } = useAuth()
   const [view, setView] = useState<View>('home')
   const [radio, setRadio] = useState<RadioData | null>(null)
-  const [authState, setAuthState] = useState<{
-    qobuzAuth: boolean
-    hasPassword: boolean
-  } | null>(null)
+  const [authState, setAuthState] = useState<AuthStatus | null>(null)
   const [showLogin, setShowLogin] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [waitingForOAuth, setWaitingForOAuth] = useState(false)
 
   useEffect(() => {
-    checkAuth().then((data) => {
-      setAuthState({ qobuzAuth: data.authenticated, hasPassword: data.has_password })
-      if (data.has_password && !token) {
-        setShowLogin(true)
-      }
-    })
+    const poll = () => {
+      checkAuth().then((data) => {
+        setAuthState(data)
+        if (data.has_password && !token) {
+          setShowLogin(true)
+        }
+        if (data.authenticated) {
+          setWaitingForOAuth(false)
+        }
+      })
+    }
+    poll()
+    const interval = setInterval(poll, 3000)
+    return () => clearInterval(interval)
   }, [token])
+
+  const handleStartOauth = async () => {
+    const url = await startOauth()
+    if (url) {
+      window.open(url, '_blank')
+      setWaitingForOAuth(true)
+    } else {
+      setError('Failed to start Qobuz authentication')
+    }
+  }
 
   if (authState === null) {
     return <div className="loading">Loading...</div>
   }
 
-  if (!authState.qobuzAuth) {
+  if (!authState.authenticated) {
     return (
       <div className="screen center">
         <h1>Ostinato Radio</h1>
-        <p className="error">Backend not authenticated. Please configure Qobuz credentials and restart the server.</p>
+        <p>Connect your Qobuz account to get started.</p>
+        {waitingForOAuth ? (
+          <p className="info">Waiting for authentication... Please complete the sign-in in the new tab.</p>
+        ) : (
+          <button onClick={handleStartOauth} className="primary-btn">Connect with Qobuz</button>
+        )}
+        {error && <p className="error">{error}</p>}
       </div>
     )
   }

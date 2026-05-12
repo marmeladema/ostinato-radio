@@ -114,7 +114,7 @@ pub async fn start_radio(
 
     if target == PlaybackTarget::Wiim {
         let m3u_url = format!(
-            "{}/playback/wiim/{}.m3u",
+            "{}/playback/wiim/{}",
             state.config.server.public_base_url, session_id
         );
         if let Err(e) = state.linkplay.play_url(&m3u_url).await {

@@ -27,11 +27,11 @@ use crate::providers::ai::openai_compat::OpenAICompatProvider;
 use crate::providers::ai::workers_ai::WorkersAIProvider;
 use crate::providers::lastfm::LastfmClient;
 use crate::providers::linkplay::LinkplayClient;
-use crate::providers::qobuz::{QobuzClient, auth::scrape_bundle};
+use crate::providers::qobuz::QobuzClient;
 use crate::state::AppState;
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<(), errors::AppError> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
@@ -132,41 +132,62 @@ async fn main() -> anyhow::Result<()> {
         jwt_secret,
     );
 
-    // Qobuz authentication at boot
-    info!("Authenticating with Qobuz...");
-    let scraped = scrape_bundle().await.ok();
-    let creds = crate::providers::qobuz::auth::ScrapedCredentials::from_env_or_scrape(scraped)?;
-
-    let email = std::env::var("QOBUZ_EMAIL")
-        .map_err(|_| errors::AppError::Qobuz("QOBUZ_EMAIL not set".to_string()))?;
-    let password = std::env::var("QOBUZ_PASSWORD")
-        .map_err(|_| errors::AppError::Qobuz("QOBUZ_PASSWORD not set".to_string()))?;
-
-    let user_auth_token = qobuz
-        .login(&creds.app_id, &creds.app_secret, &email, &password)
-        .await?;
+    // Qobuz credentials (cold boot — OAuth required unless warm-boot token provided)
+    info!("Loading Qobuz credentials...");
+    let creds = crate::providers::qobuz::auth::load_credentials(&config).await?;
 
     {
         let mut auth = state.qobuz_auth.write().await;
         auth.app_id = creds.app_id;
-        auth.app_secret = creds.app_secret;
-        auth.user_auth_token = user_auth_token;
+        auth.private_key = creds.private_key;
+        auth.app_secret = creds.app_secret.into_iter().next().unwrap_or_default();
     }
 
-    info!("Qobuz authentication successful");
-
-    // Fetch favorites and build taste profile
-    let favorites = qobuz
-        .get_user_favorites(&*state.qobuz_auth.read().await)
-        .await?;
-    let profile = build_taste_profile(favorites).await?;
-
+    // Optional: warm boot if a token is already configured (dev convenience)
+    if let Ok(token) = std::env::var("QOBUZ_USER_AUTH_TOKEN")
+        && !token.is_empty()
     {
-        let mut tp = state.taste_profile.write().await;
-        *tp = profile;
+        info!("QOBUZ_USER_AUTH_TOKEN set — attempting warm boot");
+        let confirm_creds = {
+            let auth = state.qobuz_auth.read().await;
+            crate::providers::qobuz::bundle::QobuzCredentials {
+                app_id: auth.app_id.clone(),
+                private_key: auth.private_key.clone(),
+                app_secret: vec![auth.app_secret.clone()],
+            }
+        };
+        match crate::providers::qobuz::auth::confirm_session(&confirm_creds, &token).await {
+            Ok(profile) => {
+                let mut auth = state.qobuz_auth.write().await;
+                auth.user_auth_token = token;
+                auth.user_id = Some(profile.user_id);
+                auth.display_name = Some(profile.display_name);
+                auth.email = Some(profile.email);
+                auth.country_code = Some(profile.country_code);
+                auth.subscription = profile.subscription;
+                auth.obtained_at = Some(std::time::Instant::now());
+            }
+            Err(e) => {
+                tracing::warn!("Warm boot failed: {}. Proceeding with cold boot.", e);
+            }
+        }
     }
 
-    info!("Taste profile built");
+    let token_exists = !state.qobuz_auth.read().await.user_auth_token.is_empty();
+    if token_exists {
+        info!("Qobuz session active — building taste profile");
+        let favorites = qobuz
+            .get_user_favorites(&*state.qobuz_auth.read().await)
+            .await?;
+        let profile = build_taste_profile(favorites).await?;
+        {
+            let mut tp = state.taste_profile.write().await;
+            *tp = profile;
+        }
+        info!("Taste profile built");
+    } else {
+        info!("Qobuz not authenticated — visit /auth/start to authorize");
+    }
 
     // Start cache pruning background task
     let prune_state = state.clone();
@@ -194,8 +215,12 @@ async fn main() -> anyhow::Result<()> {
     let addr = config.socket_addr();
     info!("Listening on {}", addr);
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .map_err(|e| errors::AppError::Internal(e.to_string()))?;
+    axum::serve(listener, app)
+        .await
+        .map_err(|e| errors::AppError::Internal(e.to_string()))?;
 
     Ok(())
 }
@@ -205,6 +230,8 @@ fn build_router(state: Arc<AppState>, _config: &Config) -> Router {
     let public = Router::new()
         .route("/health", get(|| async { "ok" }))
         .route("/auth/status", get(routes::auth::status))
+        .route("/auth/start", get(routes::auth::start_oauth))
+        .route("/auth/callback", get(routes::auth::oauth_callback))
         .route("/auth/login", post(routes::auth::login))
         .route("/auth/logout", post(routes::auth::logout))
         .with_state(state.clone());
@@ -216,7 +243,7 @@ fn build_router(state: Arc<AppState>, _config: &Config) -> Router {
         .route("/radio/{session_id}/next", post(routes::radio::next_track))
         .route("/stream/{track_id}", get(routes::playback::stream_redirect))
         .route(
-            "/playback/wiim/{session_id}.m3u",
+            "/playback/wiim/{session_id}",
             get(routes::playback::wiim_m3u),
         )
         .route("/playback/control", get(routes::playback::wiim_control))
@@ -238,5 +265,5 @@ fn build_router(state: Arc<AppState>, _config: &Config) -> Router {
     // Serve frontend static files if they exist
     let static_files = ServeDir::new("frontend/dist").precompressed_gzip();
 
-    Router::new().nest("/", api).fallback_service(static_files)
+    Router::new().merge(api).fallback_service(static_files)
 }

@@ -23,6 +23,10 @@ pub struct ServerConfig {
 #[serde(default)]
 pub struct QobuzConfig {
     pub preferred_format_id: u32,
+    pub fallback_app_id: String,
+    pub fallback_private_key: String,
+    pub fallback_app_secret: String,
+    pub scrape_refresh_hours: u64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -70,6 +74,10 @@ impl Default for QobuzConfig {
     fn default() -> Self {
         Self {
             preferred_format_id: 27,
+            fallback_app_id: String::new(),
+            fallback_private_key: String::new(),
+            fallback_app_secret: String::new(),
+            scrape_refresh_hours: 24,
         }
     }
 }
