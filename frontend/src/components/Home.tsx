@@ -39,9 +39,9 @@ export default function Home({ tasteProfileReady, onRadioStarted, onError }: Pro
   }
 
   return (
-    <div className="screen">
+    <div className="screen animate-in">
       <h1>Ostinato Radio</h1>
-      <p style={{ color: 'var(--muted)' }}>Personalized infinite radio over Qobuz</p>
+      <p>Personalized infinite radio over Qobuz</p>
 
       <div className="presets">
         {PRESETS.map((p) => (
@@ -59,19 +59,19 @@ export default function Home({ tasteProfileReady, onRadioStarted, onError }: Pro
         onKeyDown={(e) => e.key === 'Enter' && handleStart()}
       />
 
-      <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
-        <label style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, padding: 10, background: 'var(--surface)', borderRadius: 'var(--radius)', cursor: 'pointer' }}>
+      <div style={{ marginTop: 16, display: 'flex', gap: 10 }}>
+        <label className={`target-option ${target === 'phone' ? 'active' : ''}`} onClick={() => setTarget('phone')}>
           <input type="radio" name="target" checked={target === 'phone'} onChange={() => setTarget('phone')} />
           Play on phone
         </label>
-        <label style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, padding: 10, background: 'var(--surface)', borderRadius: 'var(--radius)', cursor: 'pointer' }}>
+        <label className={`target-option ${target === 'wiim' ? 'active' : ''}`} onClick={() => setTarget('wiim')}>
           <input type="radio" name="target" checked={target === 'wiim'} onChange={() => setTarget('wiim')} />
           Play on WiiM
         </label>
       </div>
 
       {!tasteProfileReady && (
-        <p className="info" style={{ marginTop: 12 }}>
+        <p style={{ marginTop: 16, color: 'var(--text-secondary)', fontSize: 14 }}>
           Building your taste profile... Please wait a moment.
         </p>
       )}

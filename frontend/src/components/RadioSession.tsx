@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useAuth } from '../AuthContext'
-import { nextTrack, submitFeedback, getSessionStatus, getTrackStreamInfo } from '../api'
+import { nextTrack, submitFeedback, getTrackStreamInfo } from '../api'
 import { useAudio } from '../hooks/useAudio'
 import type { RadioData } from '../App'
 import type { StreamInfo } from '../api'
@@ -87,7 +87,6 @@ export default function RadioSession({ radio, onBack, onError }: Props) {
 
   const handleComplete = useCallback(async () => {
     if (!current) return
-    // Fire-and-forget feedback so the UI advances immediately
     submitFeedback(token, radio.session_id, {
       track_id: current.track_id,
       action: 'complete',
@@ -98,7 +97,6 @@ export default function RadioSession({ radio, onBack, onError }: Props) {
 
   const handleSkip = useCallback(async () => {
     if (!current) return
-    // Fire-and-forget feedback so the UI advances immediately
     submitFeedback(token, radio.session_id, {
       track_id: current.track_id,
       action: 'skip',
@@ -115,10 +113,13 @@ export default function RadioSession({ radio, onBack, onError }: Props) {
 
   const startPhonePlayback = useCallback(async (trackId: string) => {
     try {
-      const info = await getTrackStreamInfo(token, trackId, 5) // MP3 320
+      const info = await getTrackStreamInfo(token, trackId, 5)
       setStreamInfo(info)
-      // Play the raw Qobuz CDN URL directly to avoid 302 redirect issues
-      // on Chrome Android's <audio> element.
+      if (!info.url) {
+        onError(`No stream URL for track ${trackId} — skipping`)
+        await advance()
+        return info
+      }
       play(info.url)
       return info
     } catch (e: any) {
@@ -126,7 +127,7 @@ export default function RadioSession({ radio, onBack, onError }: Props) {
       setStreamInfo(null)
       throw e
     }
-  }, [token, play, onError])
+  }, [token, play, onError, advance])
 
   useEffect(() => {
     if (current && target === 'phone') {
@@ -166,8 +167,8 @@ export default function RadioSession({ radio, onBack, onError }: Props) {
     return (
       <div className="screen center">
         <h2>End of queue</h2>
-        <p style={{ color: 'var(--muted)', marginTop: 8 }}>All tracks in this session have been played.</p>
-        <button className="primary-btn" style={{ marginTop: 16 }} onClick={onBack}>
+        <p>All tracks in this session have been played.</p>
+        <button className="primary-btn" onClick={onBack}>
           Start New Radio
         </button>
       </div>
@@ -175,21 +176,21 @@ export default function RadioSession({ radio, onBack, onError }: Props) {
   }
 
   return (
-    <div className="screen">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--text)' }}>{'← Back'}</button>
-        <span style={{ color: 'var(--muted)', fontSize: 12 }}>Session: {radio.session_id.slice(0, 8)}</span>
+    <div className="screen animate-in">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--text)', fontSize: 15, cursor: 'pointer', padding: '4px 0' }}>{'← Back'}</button>
+        <span style={{ color: 'var(--text-tertiary)', fontSize: 12, fontFamily: 'monospace' }}>{radio.session_id.slice(0, 8)}</span>
       </div>
 
       <div className="player-card">
         {cover ? <img className="cover" src={cover} alt="cover" /> : <div className="cover" />}
-        <div style={{ marginTop: 12 }}>
-          <div className="title" style={{ fontSize: 18, fontWeight: 700 }}>{current.title}</div>
-          <div style={{ color: 'var(--muted)' }}>{current.artist}</div>
-          <div style={{ color: 'var(--muted)', fontSize: 12 }}>{current.album} · {current.pool}</div>
+        <div style={{ marginTop: 16 }}>
+          <div className="track-title">{current.title}</div>
+          <div className="track-artist">{current.artist}</div>
+          <div className="track-album">{current.album} · <span style={{ textTransform: 'capitalize' }}>{current.pool.toLowerCase()}</span></div>
           {streamInfo && (
-            <div style={{ color: 'var(--accent)', fontSize: 11, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>
-              {fmtQuality(streamInfo)}
+            <div className="track-quality">
+              <span>{fmtQuality(streamInfo)}</span>
             </div>
           )}
         </div>
@@ -206,22 +207,22 @@ export default function RadioSession({ radio, onBack, onError }: Props) {
               <span>{fmtTime(currentTime)}</span>
               <span>{fmtTime(duration || (current.duration ?? 0))}</span>
             </div>
-            {loading && <div style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'center' }}>Loading…</div>}
-            {error && <div style={{ fontSize: 11, color: 'var(--accent)', textAlign: 'center' }}>{error}</div>}
+            {loading && <div style={{ fontSize: 12, color: 'var(--text-tertiary)', textAlign: 'center', marginTop: 4 }}>Loading…</div>}
+            {error && <div style={{ fontSize: 12, color: 'var(--danger)', textAlign: 'center', marginTop: 4, fontWeight: 500 }}>{error}</div>}
           </div>
         )}
 
         <div className="controls">
-          <button className="ctrl-btn" onClick={handleSkip}>⏭</button>
+          <button className="ctrl-btn" onClick={handleSkip} aria-label="Skip">⏭</button>
           {target === 'phone' && (
-            <button className="ctrl-btn large" onClick={() => (playing ? pause() : resume())}>
+            <button className="ctrl-btn large" onClick={() => (playing ? pause() : resume())} aria-label={playing ? 'Pause' : 'Play'}>
               {playing ? '⏸' : '▶'}
             </button>
           )}
-          <button className="ctrl-btn" onClick={handleComplete}>✓</button>
+          <button className="ctrl-btn" onClick={handleComplete} aria-label="Complete">✓</button>
         </div>
 
-        <button className="primary-btn" onClick={toggleTarget}>
+        <button className="secondary-btn" onClick={toggleTarget}>
           {target === 'phone' ? 'Switch to WiiM' : 'Switch to Phone'}
         </button>
       </div>
@@ -230,19 +231,19 @@ export default function RadioSession({ radio, onBack, onError }: Props) {
         <h3>Up next ({Math.max(0, queue.length - 1)})</h3>
         {queue.slice(1, 6).map((t) => (
           <div key={t.track_id} className="queue-item">
-            {t.image_url ? <img src={t.image_url} alt="" /> : <div style={{ width: 48, height: 48, borderRadius: 8, background: 'var(--surface-2)' }} />}
+            {t.image_url ? <img src={t.image_url} alt="" /> : <div style={{ width: 52, height: 52, borderRadius: 8, background: 'var(--surface-2)' }} />}
             <div className="meta">
               <div className="title">{t.title}</div>
-              <div className="artist">{t.artist} · {t.pool}</div>
+              <div className="artist">{t.artist} · <span style={{ textTransform: 'capitalize' }}>{t.pool.toLowerCase()}</span></div>
             </div>
           </div>
         ))}
       </div>
 
-      <div style={{ marginTop: 16 }}>
+      <div style={{ marginTop: 24 }}>
         <button
-          className="primary-btn"
-          style={{ fontSize: 12, padding: '6px 12px' }}
+          className="secondary-btn"
+          style={{ fontSize: 12, padding: '8px 16px', marginTop: 0 }}
           onClick={() => setShowDebug((s) => !s)}
         >
           {showDebug ? 'Hide Debug Info' : 'Show Debug Info'}
@@ -250,35 +251,34 @@ export default function RadioSession({ radio, onBack, onError }: Props) {
       </div>
 
       {showDebug && (
-        <div style={{ marginTop: 12, fontSize: 11, fontFamily: 'monospace', background: 'var(--surface-2)', padding: 12, borderRadius: 8, overflow: 'auto' }}>
-          <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Audio Element State</div>
-          <div>readyState: {diagnostics.readyState} ({readyStateName(diagnostics.readyState)})</div>
-          <div>networkState: {diagnostics.networkState} ({networkStateName(diagnostics.networkState)})</div>
-          <div>currentSrc: {diagnostics.currentSrc || '(empty)'}</div>
-          <div>lastError: {diagnostics.errorCode !== null ? `${diagnostics.errorCode} (${diagnostics.errorMessage})` : 'none'}</div>
+        <div className="debug-panel">
+          <div className="debug-heading">Audio Element State</div>
+          <div>readyState: <code>{diagnostics.readyState}</code> ({readyStateName(diagnostics.readyState)})</div>
+          <div>networkState: <code>{diagnostics.networkState}</code> ({networkStateName(diagnostics.networkState)})</div>
+          <div>currentSrc: <code>{diagnostics.currentSrc.substring(0, 80) || '(empty)'}{diagnostics.currentSrc.length > 80 ? '...' : ''}</code></div>
+          <div>lastError: {diagnostics.errorCode !== null ? <span style={{ color: 'var(--danger)' }}><code>{diagnostics.errorCode}</code> ({diagnostics.errorMessage})</span> : 'none'}</div>
 
-          <div style={{ fontWeight: 'bold', marginTop: 12, marginBottom: 8 }}>Browser Codec Support</div>
+          <div className="debug-heading">Browser Codec Support</div>
           {getCodecSupport().map((c) => (
-            <div key={c.type}>{c.type}: {c.support}</div>
+            <div key={c.type}>{c.type}: <code>{c.support}</code></div>
           ))}
 
-          <div style={{ fontWeight: 'bold', marginTop: 12, marginBottom: 8 }}>Event Log (last 20)</div>
+          <div className="debug-heading">Event Log (last 20)</div>
           {diagnostics.events.slice(-20).map((e, i) => (
             <div key={i}>{new Date(e.time).toLocaleTimeString()}.{String(e.time % 1000).padStart(3, '0')} — {e.event}{e.detail ? `: ${e.detail}` : ''}</div>
           ))}
 
-          <div style={{ fontWeight: 'bold', marginTop: 12, marginBottom: 8 }}>Network Fetch Test</div>
-          <button className="primary-btn" style={{ fontSize: 11, padding: '4px 8px' }} onClick={runFetchTest}>Fetch stream info from backend</button>
+          <div className="debug-heading">Network Fetch Test</div>
+          <button className="preset-btn" style={{ fontSize: 11 }} onClick={runFetchTest}>Fetch stream info</button>
           {fetchTest && (
-            <div style={{ marginTop: 4 }}>
+            <div style={{ marginTop: 8 }}>
               {fetchTest.error ? (
-                <div style={{ color: 'var(--accent)' }}>Error: {fetchTest.error} ({fetchTest.elapsed}ms)</div>
+                <div style={{ color: 'var(--danger)' }}>Error: {fetchTest.error} ({fetchTest.elapsed}ms)</div>
               ) : (
                 <>
-                  <div>format: {fetchTest.format} ({fetchTest.format_id})</div>
+                  <div>format: <code>{fetchTest.format}</code> ({fetchTest.format_id})</div>
                   <div>Qobuz CDN: {fetchTest.url ? 'resolved' : 'missing'}</div>
                   <div>backend elapsed: {fetchTest.elapsed}ms</div>
-                  <div style={{ wordBreak: 'break-all', marginTop: 4 }}>direct URL: {fetchTest.url}</div>
                 </>
               )}
             </div>

@@ -46,20 +46,32 @@ export function useAudio() {
     }))
   }, [])
 
-  const cleanup = useCallback(() => {
-    const old = audioRef.current
-    if (old) {
-      old.pause()
-      old.src = ''
-      old.load()
-      // Remove all listeners to avoid leaks (not strictly necessary for GC,
-      // but good practice if we keep the element around)
-      const clone = old.cloneNode(false) as HTMLAudioElement
-      audioRef.current = clone
-    }
+  const setOnEnded = useCallback((cb: (() => void) | null) => {
+    onEndedRef.current = cb
   }, [])
 
-  const attachListeners = useCallback((a: HTMLAudioElement) => {
+  const play = useCallback((url: string) => {
+    if (!url) {
+      logEvent('play() rejected', 'url is empty — cannot play')
+      setError('Cannot play: empty stream URL')
+      setLoading(false)
+      return
+    }
+
+    // Pause and orphan the previous audio element. We intentionally do NOT
+    // clear its src or call load() — that would fire spurious error events
+    // on the old element which share the same React state setters.
+    const previous = audioRef.current
+    if (previous) {
+      previous.pause()
+      logEvent('orphaned previous audio element')
+    }
+
+    setError(null)
+    setLoading(true)
+
+    const a = new Audio()
+
     a.addEventListener('loadstart', () => { logEvent('loadstart'); updateState() })
     a.addEventListener('loadedmetadata', () => {
       logEvent('loadedmetadata', `duration=${a.duration}`)
@@ -94,61 +106,52 @@ export function useAudio() {
       const msg = err?.message ?? 'unknown'
       const detail = `code=${code}(${mediaErrorName(code)}) message=${msg}`
       logEvent('error', detail)
-      setError(`Audio error ${code}: ${mediaErrorName(code)} – ${msg}`)
-      setLoading(false)
-      setPlaying(false)
-      setDiagnostics((prev) => ({
-        ...prev,
-        errorCode: code,
-        errorMessage: msg,
-      }))
-      updateState()
+
+      // Only apply the error if this element is still the current one.
+      // If we have already moved to a new track, the old element's error
+      // should not overwrite the new track's state.
+      if (audioRef.current === a) {
+        setError(`Audio error ${code}: ${mediaErrorName(code)} – ${msg}`)
+        setLoading(false)
+        setPlaying(false)
+        setDiagnostics((prev) => ({
+          ...prev,
+          errorCode: code,
+          errorMessage: msg,
+        }))
+        updateState()
+      } else {
+        logEvent('error ignored', 'element was already replaced')
+      }
     })
-  }, [logEvent, updateState])
 
-  const setOnEnded = useCallback((cb: (() => void) | null) => {
-    onEndedRef.current = cb
-  }, [])
-
-  const play = useCallback((url: string) => {
-    setError(null)
-    setLoading(true)
-
-    // Always create a fresh audio element to avoid error-state accumulation.
-    // Chrome Android can leave an <audio> element permanently broken
-    // after a SRC_NOT_SUPPORTED error.
-    cleanup()
-    const a = new Audio()
-    // Do NOT set crossOrigin. CORS enforcement on 302 redirects breaks
-    // playback on some mobile browsers when the redirect target is
-    // a different origin (akamaized.net). Without crossOrigin, the
-    // browser follows the redirect without sending Origin / checking ACAO.
-    attachListeners(a)
     audioRef.current = a
 
-    logEvent('play()', `url=${url}`)
+    logEvent('play()', `url=${url.substring(0, 80)}${url.length > 80 ? '...' : ''}`)
 
     a.src = url
     a.load()
-    logEvent('src assigned & load() called', url)
+    logEvent('src assigned & load() called')
 
     a.play().catch((e: DOMException) => {
       const mediaErr = a.error
-      if (mediaErr) {
+      if (mediaErr && audioRef.current === a) {
         const code = mediaErr.code
         const msg = mediaErr.message
         logEvent('play() rejected', `MediaError ${code}(${mediaErrorName(code)}): ${msg}`)
         setLoading(false)
         setError(`Audio error ${code}: ${mediaErrorName(code)} – ${msg}`)
-      } else {
+      } else if (audioRef.current === a) {
         const reason = e?.name ?? 'unknown'
         const msg = e?.message ?? ''
         logEvent('play() rejected', `${reason}: ${msg}`)
         setLoading(false)
         setError(`Playback blocked: ${reason} – ${msg}`)
+      } else {
+        logEvent('play() rejected', 'element was already replaced')
       }
     })
-  }, [cleanup, attachListeners, logEvent])
+  }, [logEvent, updateState])
 
   const pause = useCallback(() => {
     logEvent('pause() called')
@@ -157,7 +160,22 @@ export function useAudio() {
 
   const resume = useCallback(() => {
     logEvent('resume() called')
-    audioRef.current?.play().catch((e) => logEvent('resume() failed', e?.message))
+    const a = audioRef.current
+    if (!a) {
+      logEvent('resume() failed', 'no audio element')
+      return
+    }
+    if (!a.src) {
+      logEvent('resume() failed', 'src is empty')
+      setError('Cannot resume: no stream loaded')
+      return
+    }
+    a.play().catch((e) => {
+      if (audioRef.current === a) {
+        logEvent('resume() failed', e?.message)
+        setError(`Playback blocked: ${e?.message || 'unknown'}`)
+      }
+    })
   }, [logEvent])
 
   const seek = useCallback((t: number) => {

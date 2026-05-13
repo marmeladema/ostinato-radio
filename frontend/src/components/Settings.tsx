@@ -15,7 +15,7 @@ export default function Settings({ onLogout }: Props) {
   }
 
   return (
-    <div className="screen">
+    <div className="screen animate-in">
       <h2>Settings</h2>
 
       <div className="settings-group">
@@ -25,37 +25,33 @@ export default function Settings({ onLogout }: Props) {
           value={wiimIp}
           onChange={(e) => setWiimIp(e.target.value)}
         />
-        <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 6 }}>
+        <p style={{ fontSize: 13, marginTop: 8 }}>
           Leave empty for auto-discovery.
         </p>
       </div>
 
       <div className="settings-group">
         <label>Pool Ratios (default)</label>
-        <p style={{ color: 'var(--muted)', fontSize: 12 }}>
+        <p style={{ fontSize: 13 }}>
           Familiar 60% · New Releases 25% · Discovery 15%
         </p>
-        <p style={{ color: 'var(--muted)', fontSize: 12 }}>
-          Adjust via backend config.toml temporarily.
+        <p style={{ fontSize: 13, marginTop: 4 }}>
+          Adjust via backend <code>config.toml</code> temporarily.
         </p>
       </div>
 
       <div className="settings-group">
         <label>AI Provider</label>
-        <p style={{ color: 'var(--muted)', fontSize: 12 }}>
-          Configured on the backend via config.toml / env vars.
+        <p style={{ fontSize: 13 }}>
+          Configured on the backend via <code>config.toml</code> / env vars.
         </p>
       </div>
 
       <button className="primary-btn" onClick={handleSave}>
-        {saved ? 'Saved!' : 'Save'}
+        {saved ? 'Saved!' : 'Save Settings'}
       </button>
 
-      <button
-        className="primary-btn"
-        style={{ background: 'var(--surface-2)', marginTop: 12 }}
-        onClick={onLogout}
-      >
+      <button className="secondary-btn" onClick={onLogout}>
         Log out
       </button>
     </div>

@@ -416,6 +416,13 @@ impl QobuzClient {
             .and_then(|v| v.as_str())
             .ok_or_else(|| AppError::Qobuz("Missing stream URL".to_string()))?;
 
+        if stream_url.is_empty() {
+            return Err(AppError::Qobuz(format!(
+                "Qobuz returned empty stream URL for track {} (format_id={})",
+                track_id, format_id
+            )));
+        }
+
         let sampling_rate = body
             .get("sampling_rate")
             .and_then(|v| v.as_f64())
