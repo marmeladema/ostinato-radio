@@ -65,7 +65,7 @@ function getCodecSupport() {
 
 export default function RadioSession({ radio, onBack, onError }: Props) {
   const { token } = useAuth()
-  const { playing, play, pause, resume, currentTime, duration, error, loading, diagnostics, setOnEnded } = useAudio()
+  const { playing, play, pause, resume, currentTime, duration, error, loading, diagnostics, seek, setOnEnded } = useAudio()
   const [queue, setQueue] = useState(radio.queue)
   const [current, setCurrent] = useState<typeof radio.queue[0] | null>(radio.queue[0] || null)
   const [target, setTarget] = useState(radio.target)
@@ -161,6 +161,26 @@ export default function RadioSession({ radio, onBack, onError }: Props) {
     }
   }, [current, token])
 
+  const [hoverPos, setHoverPos] = useState<number | null>(null)
+
+  const handleSeekClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!duration) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+    seek(ratio * duration)
+  }, [duration, seek])
+
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!duration) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+    setHoverPos(ratio)
+  }, [duration])
+
+  const handleMouseLeave = useCallback(() => {
+    setHoverPos(null)
+  }, [])
+
   const cover = current?.image_url || ''
 
   if (!current) {
@@ -197,11 +217,21 @@ export default function RadioSession({ radio, onBack, onError }: Props) {
 
         {target === 'phone' && (
           <div className="progress-wrap">
-            <div className="progress-bar">
+            <div
+              className="progress-bar"
+              onClick={handleSeekClick}
+              onMouseMove={handleMouseMove}
+              onMouseLeave={handleMouseLeave}
+            >
               <div
                 className="progress-fill"
                 style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
               />
+              {hoverPos !== null && duration > 0 && (
+                <div className="seek-thumb" style={{ left: `${hoverPos * 100}%` }}>
+                  <div className="seek-tooltip">{fmtTime(hoverPos * duration)}</div>
+                </div>
+              )}
             </div>
             <div className="progress-time">
               <span>{fmtTime(currentTime)}</span>
@@ -219,7 +249,6 @@ export default function RadioSession({ radio, onBack, onError }: Props) {
               {playing ? '⏸' : '▶'}
             </button>
           )}
-          <button className="ctrl-btn" onClick={handleComplete} aria-label="Complete">✓</button>
         </div>
 
         <button className="secondary-btn" onClick={toggleTarget}>
