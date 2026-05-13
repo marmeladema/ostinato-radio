@@ -93,7 +93,7 @@ function AppInner() {
       </nav>
 
       <main>
-        {view === 'home' && (
+        <div style={{ display: view === 'home' ? 'block' : 'none', height: '100%' }}>
           <Home
             tasteProfileReady={authState.taste_profile_ready}
             onRadioStarted={(data) => {
@@ -102,15 +102,19 @@ function AppInner() {
             }}
             onError={setError}
           />
-        )}
-        {view === 'radio' && radio && (
-          <RadioSession
-            radio={radio}
-            onBack={() => setView('home')}
-            onError={setError}
-          />
-        )}
-        {view === 'settings' && <Settings onLogout={logout} />}
+        </div>
+        <div style={{ display: view === 'radio' ? 'block' : 'none', height: '100%' }}>
+          {radio && (
+            <RadioSession
+              radio={radio}
+              onBack={() => setView('home')}
+              onError={setError}
+            />
+          )}
+        </div>
+        <div style={{ display: view === 'settings' ? 'block' : 'none', height: '100%' }}>
+          <Settings onLogout={logout} />
+        </div>
       </main>
     </div>
   )
